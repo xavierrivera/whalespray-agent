@@ -98,6 +98,7 @@ class UrlIngest(BaseModel):
 class SiteCrawl(BaseModel):
     url: str
     max_pages: int = 100
+    exclude_patterns: list[str] = []
 
 
 # ─── Instructions ─────────────────────────────────────────────────────────────
@@ -398,9 +399,9 @@ def delete_source(source_id: int, db: Session = Depends(get_db)):
 # ─── Crawler ──────────────────────────────────────────────────────────────────
 
 # In-memory crawler status
-crawler_status = {"running": False, "total": 0, "done": 0, "found": 0, "current": ""}
+crawler_status = {"running": False, "total": 0, "done": 0, "found": 0, "current": "", "skipped": 0}
 
-def _crawl_site(base_url: str, max_pages: int):
+def _crawl_site(base_url: str, max_pages: int, exclude_patterns: list = []):
     from urllib.parse import urljoin, urlparse
     from database import SessionLocal
     import time
@@ -409,6 +410,7 @@ def _crawl_site(base_url: str, max_pages: int):
     crawler_status["total"] = 0
     crawler_status["done"] = 0
     crawler_status["found"] = 0
+    crawler_status["skipped"] = 0
     crawler_status["current"] = base_url
 
     parsed_base = urlparse(base_url)
@@ -445,10 +447,13 @@ def _crawl_site(base_url: str, max_pages: int):
                 full = urljoin(url, href).split("#")[0].split("?")[0]
                 p = urlparse(full)
                 if p.netloc == base_domain and full not in visited and full not in to_visit:
-                    # Skip non-content paths
                     skip_ext = (".pdf", ".jpg", ".png", ".gif", ".svg", ".css", ".js", ".zip", ".xml")
-                    if not any(p.path.lower().endswith(e) for e in skip_ext):
-                        to_visit.append(full)
+                    if any(p.path.lower().endswith(e) for e in skip_ext):
+                        continue
+                    # Check user-defined exclude patterns
+                    if any(pat.strip() and pat.strip() in full for pat in exclude_patterns):
+                        continue
+                    to_visit.append(full)
         except Exception as e:
             logger.warning(f"Crawl skip {url}: {e}")
 
@@ -460,6 +465,10 @@ def _crawl_site(base_url: str, max_pages: int):
     try:
         for url in found_urls:
             crawler_status["current"] = url
+            # Re-check exclude patterns at index time (in case patterns changed)
+            if any(pat.strip() and pat.strip() in url for pat in exclude_patterns):
+                crawler_status["skipped"] += 1
+                continue
             # Check if already indexed
             existing = db.query(DataSource).filter(
                 DataSource.source_path == url,
@@ -487,7 +496,7 @@ def _crawl_site(base_url: str, max_pages: int):
 async def crawl_site(background_tasks: BackgroundTasks, data: SiteCrawl):
     if crawler_status["running"]:
         raise HTTPException(status_code=409, detail="Ya hay un crawl en curso")
-    background_tasks.add_task(_crawl_site, data.url, data.max_pages)
+    background_tasks.add_task(_crawl_site, data.url, data.max_pages, data.exclude_patterns)
     return {"ok": True, "message": f"Crawl iniciado para {data.url}"}
 
 

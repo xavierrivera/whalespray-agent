@@ -3,7 +3,7 @@ import { useDropzone } from 'react-dropzone'
 import axios from 'axios'
 import {
   Upload, Globe, Trash2, RefreshCw, FileText,
-  CheckCircle, XCircle, Clock, Loader, Database, Search, Wifi
+  CheckCircle, XCircle, Clock, Loader, Database, Search, Wifi, Plus, Ban
 } from 'lucide-react'
 
 const statusIcon = {
@@ -28,8 +28,10 @@ export default function SourcesPanel() {
 
   // Crawler state
   const [crawlUrl, setCrawlUrl] = useState('https://www.whalespray.com')
-  const [maxPages, setMaxPages] = useState(100)
-  const [crawlerStatus, setCrawlerStatus] = useState({ running: false, total: 0, done: 0, found: 0, current: '' })
+  const [maxPages, setMaxPages] = useState(200)
+  const [excludeInput, setExcludeInput] = useState('')
+  const [excludeList, setExcludeList] = useState([])
+  const [crawlerStatus, setCrawlerStatus] = useState({ running: false, total: 0, done: 0, found: 0, skipped: 0, current: '' })
 
   const loadSources = async () => {
     try {
@@ -95,10 +97,24 @@ export default function SourcesPanel() {
     }
   }
 
+  const addExclude = () => {
+    const val = excludeInput.trim()
+    if (val && !excludeList.includes(val)) {
+      setExcludeList(prev => [...prev, val])
+    }
+    setExcludeInput('')
+  }
+
+  const removeExclude = (pat) => setExcludeList(prev => prev.filter(p => p !== pat))
+
   const startCrawl = async () => {
     if (!crawlUrl.trim()) return
     try {
-      await axios.post('/api/sources/crawl', { url: crawlUrl.trim(), max_pages: maxPages })
+      await axios.post('/api/sources/crawl', {
+        url: crawlUrl.trim(),
+        max_pages: maxPages,
+        exclude_patterns: excludeList
+      })
       loadCrawlerStatus()
     } catch (err) {
       alert('Error: ' + (err.response?.data?.detail || err.message))
@@ -145,8 +161,9 @@ export default function SourcesPanel() {
                 Rastreando…
               </span>
               <span className="text-gray-500 text-xs">
-                {crawlerStatus.done}/{crawlerStatus.total || '?'} páginas indexadas
+                {crawlerStatus.done}/{crawlerStatus.total || '?'} indexadas
                 {crawlerStatus.found > 0 && ` · ${crawlerStatus.found} encontradas`}
+                {crawlerStatus.skipped > 0 && ` · ${crawlerStatus.skipped} excluidas`}
               </span>
             </div>
             {crawlPercent !== null && (
@@ -164,31 +181,74 @@ export default function SourcesPanel() {
             )}
           </div>
         ) : (
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">URL del sitio web</label>
-              <input
-                type="url"
-                value={crawlUrl}
-                onChange={e => setCrawlUrl(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="https://www.tuempresa.com"
-              />
+          <div className="space-y-4">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">URL del sitio web</label>
+                <input
+                  type="url"
+                  value={crawlUrl}
+                  onChange={e => setCrawlUrl(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="https://www.tuempresa.com"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Máximo de páginas</label>
+                <select
+                  value={maxPages}
+                  onChange={e => setMaxPages(Number(e.target.value))}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value={25}>25 páginas</option>
+                  <option value={50}>50 páginas</option>
+                  <option value={100}>100 páginas</option>
+                  <option value={200}>200 páginas</option>
+                  <option value={500}>500 páginas</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Máximo de páginas a indexar</label>
-              <select
-                value={maxPages}
-                onChange={e => setMaxPages(Number(e.target.value))}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value={25}>25 páginas</option>
-                <option value={50}>50 páginas</option>
-                <option value={100}>100 páginas</option>
-                <option value={200}>200 páginas</option>
-                <option value={500}>500 páginas</option>
-              </select>
+
+            {/* Exclusions */}
+            <div className="border border-dashed border-gray-200 rounded-xl p-3 space-y-2">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
+                <Ban size={13} className="text-orange-400" />
+                URLs a excluir <span className="text-gray-400 font-normal">(fragmento de URL o path)</span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={excludeInput}
+                  onChange={e => setExcludeInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && addExclude()}
+                  placeholder="ej: /carrito, /mi-cuenta, /login"
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+                <button
+                  onClick={addExclude}
+                  disabled={!excludeInput.trim()}
+                  className="px-3 py-1.5 bg-orange-50 text-orange-600 border border-orange-200 rounded-lg text-xs font-medium hover:bg-orange-100 disabled:opacity-40 transition-colors flex items-center gap-1"
+                >
+                  <Plus size={12} /> Añadir
+                </button>
+              </div>
+              {excludeList.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {excludeList.map(pat => (
+                    <span key={pat} className="inline-flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-700 text-xs rounded-full px-2.5 py-0.5">
+                      <Ban size={10} />
+                      {pat}
+                      <button onClick={() => removeExclude(pat)} className="ml-0.5 hover:text-red-600 transition-colors">
+                        <XCircle size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {excludeList.length === 0 && (
+                <p className="text-xs text-gray-400">No hay exclusiones. Se indexarán todas las páginas encontradas.</p>
+              )}
             </div>
+
             <button
               onClick={startCrawl}
               className="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
