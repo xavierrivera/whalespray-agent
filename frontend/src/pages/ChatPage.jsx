@@ -255,11 +255,15 @@ export default function ChatPage() {
           ref={inputRef}
           rows={1}
           value={input}
-          onChange={e => setInput(e.target.value)}
+          onChange={e => {
+            setInput(e.target.value)
+            e.target.style.height = 'auto'
+            e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px'
+          }}
           onKeyDown={handleKeyDown}
           placeholder="Escribe tu mensaje… / Type your message…"
-          className="flex-1 resize-none text-sm focus:outline-none bg-transparent max-h-32 py-1"
-          style={{ fieldSizing: 'content' }}
+          className="flex-1 resize-none text-sm focus:outline-none bg-transparent py-1"
+          style={{ minHeight: '24px', maxHeight: '128px', overflowY: 'auto' }}
         />
         <button
           onClick={() => sendMessage(input)}
