@@ -10,7 +10,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-CHROMA_PATH = "./data/chroma"
+CHROMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "chroma")
 COLLECTION_NAME = "knowledge_base"
 
 

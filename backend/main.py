@@ -21,7 +21,9 @@ load_dotenv()  # Does NOT override system env vars
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-RUNTIME_CREDS_FILE = "./data/.orchids_runtime"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+RUNTIME_CREDS_FILE = os.path.join(DATA_DIR, ".orchids_runtime")
 
 def _refresh_runtime_if_needed():
     """Overwrite runtime file with current env vars if the token has changed."""
@@ -104,8 +106,8 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     init_db()
-    os.makedirs("./data/pdfs", exist_ok=True)
-    os.makedirs("./data/chroma", exist_ok=True)
+    os.makedirs(os.path.join(DATA_DIR, "pdfs"), exist_ok=True)
+    os.makedirs(os.path.join(DATA_DIR, "chroma"), exist_ok=True)
     logger.info("Database initialized")
     # Resume any pending/processing sources that were interrupted
     import threading
@@ -172,7 +174,7 @@ class SiteCrawl(BaseModel):
 
 # ─── Instructions ─────────────────────────────────────────────────────────────
 
-INSTRUCTIONS_FILE = "./data/instructions.txt"
+INSTRUCTIONS_FILE = os.path.join(DATA_DIR, "instructions.txt")
 
 def read_instructions() -> str:
     if os.path.exists(INSTRUCTIONS_FILE):
@@ -395,7 +397,7 @@ async def upload_pdf(
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files allowed")
 
-    file_path = f"./data/pdfs/{uuid.uuid4()}_{file.filename}"
+    file_path = os.path.join(DATA_DIR, "pdfs", f"{uuid.uuid4()}_{file.filename}")
     async with aiofiles.open(file_path, "wb") as f:
         content = await file.read()
         await f.write(content)
