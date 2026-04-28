@@ -36,6 +36,42 @@ async def startup():
     os.makedirs("./data/pdfs", exist_ok=True)
     os.makedirs("./data/chroma", exist_ok=True)
     logger.info("Database initialized")
+    # Resume any pending/processing sources that were interrupted
+    import threading
+    threading.Thread(target=_resume_pending_sources, daemon=True).start()
+
+
+def _resume_pending_sources():
+    import concurrent.futures
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        stuck = db.query(DataSource).filter(
+            DataSource.status.in_(["pending", "processing"])
+        ).all()
+        if not stuck:
+            return
+        logger.info(f"Resuming {len(stuck)} interrupted sources in parallel...")
+        # Reset all to pending first
+        for source in stuck:
+            source.status = "pending"
+        db.commit()
+        sources_data = [(s.id, s.source_type, s.source_path, s.name) for s in stuck]
+    finally:
+        db.close()
+
+    def _process_one(item):
+        sid, stype, spath, sname = item
+        try:
+            if stype == "pdf" and os.path.exists(spath):
+                process_pdf_background(sid, spath, sname)
+            elif stype == "url":
+                process_url_background(sid, spath)
+        except Exception as e:
+            logger.error(f"Error resuming source {sid}: {e}")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+        executor.map(_process_one, sources_data)
 
 
 # ─── Models ──────────────────────────────────────────────────────────────────
