@@ -23,46 +23,69 @@ logger = logging.getLogger(__name__)
 
 RUNTIME_CREDS_FILE = "./data/.orchids_runtime"
 
-def get_anthropic_client():
-    """Build Anthropic client reading credentials fresh on every call."""
+def _refresh_runtime_if_needed():
+    """Overwrite runtime file with current env vars if the token has changed."""
+    current = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+    if not current:
+        return
+    try:
+        stored = ""
+        if os.path.exists(RUNTIME_CREDS_FILE):
+            with open(RUNTIME_CREDS_FILE) as f:
+                for line in f:
+                    if line.startswith("ANTHROPIC_AUTH_TOKEN="):
+                        stored = line.split("=", 1)[1].strip()
+                        break
+        if stored != current:
+            base = os.environ.get("ANTHROPIC_BASE_URL", "")
+            hdrs = os.environ.get("ANTHROPIC_CUSTOM_HEADERS", "")
+            with open(RUNTIME_CREDS_FILE, "w") as f:
+                f.write(f"ANTHROPIC_AUTH_TOKEN={current}\nANTHROPIC_BASE_URL={base}\nANTHROPIC_CUSTOM_HEADERS={hdrs}\n")
+    except Exception:
+        pass
+
+
+def get_anthropic_client(req_headers: dict = None):
+    """Build Anthropic client, always reading the freshest credentials."""
     import uuid as _uuid
 
-    # Parse runtime file: top-level keys are UPPER_CASE= lines,
-    # continuation lines belong to the previous key
-    creds = {}
-    if os.path.exists(RUNTIME_CREDS_FILE):
-        with open(RUNTIME_CREDS_FILE) as f:
-            current_key = None
-            for raw in f:
-                line = raw.rstrip("\n")
-                # Top-level key: UPPERCASE_WORD=value
-                if line and line.split("=")[0].replace("_","").isupper() and "=" in line:
-                    k, v = line.split("=", 1)
-                    current_key = k.strip()
-                    creds[current_key] = v
-                elif current_key:
-                    # Continuation line (multi-line value like ANTHROPIC_CUSTOM_HEADERS)
-                    creds[current_key] += "\n" + line
+    _refresh_runtime_if_needed()
 
-    # Fall back to live env vars
-    api_key = (creds.get("ANTHROPIC_AUTH_TOKEN", "").strip()
-               or os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
-               or os.environ.get("ANTHROPIC_API_KEY", ""))
-    base_url = (creds.get("ANTHROPIC_BASE_URL", "").strip()
-                or os.environ.get("ANTHROPIC_BASE_URL", ""))
-    custom_raw = (creds.get("ANTHROPIC_CUSTOM_HEADERS", "").strip()
-                  or os.environ.get("ANTHROPIC_CUSTOM_HEADERS", ""))
+    # Read from runtime file (most up-to-date)
+    creds = {"auth": "", "base": "", "hdrs_raw": ""}
+    if os.path.exists(RUNTIME_CREDS_FILE):
+        try:
+            current_key = None
+            with open(RUNTIME_CREDS_FILE) as f:
+                for raw in f:
+                    line = raw.rstrip("\n")
+                    if line.startswith("ANTHROPIC_AUTH_TOKEN="):
+                        creds["auth"] = line.split("=", 1)[1]
+                        current_key = "auth"
+                    elif line.startswith("ANTHROPIC_BASE_URL="):
+                        creds["base"] = line.split("=", 1)[1]
+                        current_key = "base"
+                    elif line.startswith("ANTHROPIC_CUSTOM_HEADERS="):
+                        creds["hdrs_raw"] = line.split("=", 1)[1]
+                        current_key = "hdrs_raw"
+                    elif current_key == "hdrs_raw":
+                        creds["hdrs_raw"] += "\n" + line
+        except Exception:
+            pass
+
+    api_key = creds["auth"].strip() or os.environ.get("ANTHROPIC_AUTH_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+    base_url = creds["base"].strip() or os.environ.get("ANTHROPIC_BASE_URL", "")
+    custom_raw = creds["hdrs_raw"].strip() or os.environ.get("ANTHROPIC_CUSTOM_HEADERS", "")
 
     headers = {}
     for line in custom_raw.splitlines():
         if ":" in line:
             k, v = line.split(":", 1)
             headers[k.strip()] = v.strip()
-    # Always use fresh per-request UUIDs for Orchids tracking headers
     headers["x-orchids-token-usage-request-id"] = str(_uuid.uuid4())
     headers["x-orchids-assistant-message-id"] = str(_uuid.uuid4())
 
-    kwargs = {"api_key": api_key, "default_headers": headers}
+    kwargs = {"api_key": api_key or "placeholder", "default_headers": headers}
     if base_url:
         kwargs["base_url"] = base_url
     return anthropic.Anthropic(**kwargs)
