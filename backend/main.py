@@ -533,16 +533,14 @@ def _crawl_site(base_url: str, max_pages: int, exclude_patterns: list = []):
     crawler_status["total"] = len(found_urls)
     logger.info(f"Crawl found {len(found_urls)} pages. Indexing...")
 
-    # Phase 2: index each page
+    # Phase 2: register all URLs in DB first
+    urls_to_index = []
     db = SessionLocal()
     try:
         for url in found_urls:
-            crawler_status["current"] = url
-            # Re-check exclude patterns at index time (in case patterns changed)
             if any(pat.strip() and pat.strip() in url for pat in exclude_patterns):
                 crawler_status["skipped"] += 1
                 continue
-            # Check if already indexed
             existing = db.query(DataSource).filter(
                 DataSource.source_path == url,
                 DataSource.source_type == "url"
@@ -550,15 +548,29 @@ def _crawl_site(base_url: str, max_pages: int, exclude_patterns: list = []):
             if existing:
                 crawler_status["done"] += 1
                 continue
-
             source = DataSource(name=url, source_type="url", source_path=url, status="pending")
             db.add(source)
             db.commit()
             db.refresh(source)
-            process_url_background(source.id, url)
-            crawler_status["done"] += 1
+            urls_to_index.append((source.id, url))
     finally:
         db.close()
+
+    # Phase 3: index in parallel with thread pool
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    def _index_one(sid, u):
+        process_url_background(sid, u)
+        crawler_status["done"] += 1
+        crawler_status["current"] = u
+        return u
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = [pool.submit(_index_one, sid, u) for sid, u in urls_to_index]
+        for f in as_completed(futures):
+            try:
+                f.result()
+            except Exception as e:
+                logger.error(f"Crawl index error: {e}")
 
     crawler_status["running"] = False
     crawler_status["current"] = ""
