@@ -1,11 +1,12 @@
 import { Routes, Route, Link, useLocation } from 'react-router-dom'
 import ChatPage from './pages/ChatPage'
 import AdminPage from './pages/AdminPage'
-import { MessageSquare, Settings } from 'lucide-react'
+import { MessageSquare, Settings, Database, Phone, SlidersHorizontal } from 'lucide-react'
 
 export default function App() {
   const location = useLocation()
   const isAdmin = location.pathname.startsWith('/admin')
+  const isInstructions = location.pathname === '/admin/instructions'
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -17,7 +18,7 @@ export default function App() {
             </div>
             <span className="font-semibold text-gray-800">Agente IA</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <Link
               to="/"
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
@@ -30,11 +31,20 @@ export default function App() {
             <Link
               to="/admin"
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                isAdmin ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                isAdmin && !isInstructions ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
               }`}
             >
-              <Settings size={15} />
+              <Database size={15} />
               Admin
+            </Link>
+            <Link
+              to="/admin/instructions"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                isInstructions ? 'bg-violet-50 text-violet-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              <SlidersHorizontal size={15} />
+              Configuración
             </Link>
           </div>
         </div>

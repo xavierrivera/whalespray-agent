@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
-import { Save, RotateCcw, CheckCircle, AlertCircle, Lightbulb } from 'lucide-react'
+import { Save, RotateCcw, CheckCircle, AlertCircle, SlidersHorizontal, ChevronDown, ChevronUp } from 'lucide-react'
 
 const DEFAULT_INSTRUCTIONS = `Eres un agente de atención al cliente profesional y servicial. Respondes ÚNICAMENTE basándote en la información de los documentos y páginas web proporcionados.
 
@@ -15,12 +15,50 @@ REGLAS IMPORTANTES:
 CUANDO NO SEPAS LA RESPUESTA:
 Di algo como: "No tengo esa información en mi base de conocimiento. ¿Quieres dejar tus datos de contacto para que nuestro equipo te ayude directamente?"`
 
+const SNIPPETS = [
+  {
+    group: 'Identidad',
+    items: [
+      { label: 'Nombre de empresa', text: 'La empresa se llama [NOMBRE DE LA EMPRESA]. ' },
+      { label: 'Nombre del agente', text: 'Tu nombre es [NOMBRE DEL AGENTE]. ' },
+      { label: 'Sector / industria', text: 'La empresa se dedica a [SECTOR/ACTIVIDAD]. ' },
+    ]
+  },
+  {
+    group: 'Idioma y tono',
+    items: [
+      { label: 'Siempre en español', text: 'Responde SIEMPRE en español, independientemente del idioma del usuario. ' },
+      { label: 'Siempre en inglés', text: 'Always respond in English, regardless of the language used by the user. ' },
+      { label: 'Tono formal', text: 'Usa un tono formal y profesional en todo momento. Trata al usuario de usted. ' },
+      { label: 'Tono cercano', text: 'Usa un tono cercano y amigable. Trata al usuario de tú. ' },
+    ]
+  },
+  {
+    group: 'Comportamiento',
+    items: [
+      { label: 'Ofrecer contacto siempre', text: 'Al final de cada respuesta, recuerda al usuario que puede dejar sus datos de contacto si necesita más ayuda. ' },
+      { label: 'Respuestas cortas', text: 'Sé muy conciso. Responde en máximo 3 frases. ' },
+      { label: 'Respuestas detalladas', text: 'Sé detallado y exhaustivo en tus respuestas, explicando todos los aspectos relevantes. ' },
+      { label: 'Limitar temas', text: 'Solo responde preguntas relacionadas con [TEMA]. Para cualquier otro tema, indica que no puedes ayudar. ' },
+    ]
+  },
+  {
+    group: 'Horario y contacto',
+    items: [
+      { label: 'Horario de atención', text: 'El horario de atención es de lunes a viernes de [HORA INICIO] a [HORA FIN]. ' },
+      { label: 'Teléfono de contacto', text: 'El teléfono de contacto es [TELÉFONO]. ' },
+      { label: 'Email de contacto', text: 'El email de contacto es [EMAIL]. ' },
+    ]
+  },
+]
+
 export default function InstructionsPanel() {
   const [instructions, setInstructions] = useState('')
   const [original, setOriginal] = useState('')
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [openGroup, setOpenGroup] = useState(null)
 
   useEffect(() => {
     axios.get('/api/instructions').then(res => {
@@ -38,7 +76,7 @@ export default function InstructionsPanel() {
       setOriginal(instructions)
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
-    } catch (err) {
+    } catch {
       setError('Error al guardar. Inténtalo de nuevo.')
     } finally {
       setSaving(false)
@@ -51,81 +89,120 @@ export default function InstructionsPanel() {
     }
   }
 
+  const insertSnippet = (text) => {
+    setInstructions(prev => prev + (prev.endsWith('\n') || prev === '' ? '' : '\n') + text)
+  }
+
   const hasChanges = instructions !== original
 
   return (
-    <div className="space-y-4">
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
-        <Lightbulb size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
-        <div className="text-sm text-amber-800">
-          <p className="font-medium mb-1">Instrucciones del sistema</p>
-          <p>Estas instrucciones definen el comportamiento del agente. Se envían junto con cada conversación. El agente responderá de acuerdo a estas directrices.</p>
+    <div className="space-y-5">
+
+      {/* Header card */}
+      <div className="bg-gradient-to-r from-violet-600 to-violet-700 rounded-xl p-5 text-white flex items-start gap-4">
+        <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center flex-shrink-0">
+          <SlidersHorizontal size={20} className="text-white" />
+        </div>
+        <div>
+          <h2 className="font-bold text-lg">Configuración del agente</h2>
+          <p className="text-violet-200 text-sm mt-0.5">
+            Define cómo debe comportarse el agente: nombre, tono, idioma, límites y más. Los cambios se aplican de inmediato.
+          </p>
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-800">Instrucciones del agente</h2>
-          <div className="flex items-center gap-2">
-            {saved && (
-              <span className="flex items-center gap-1 text-xs text-green-600">
-                <CheckCircle size={13} /> Guardado
-              </span>
-            )}
-            {error && (
-              <span className="flex items-center gap-1 text-xs text-red-600">
-                <AlertCircle size={13} /> {error}
-              </span>
-            )}
-            <button
-              onClick={reset}
-              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 transition-colors px-2 py-1 rounded"
-            >
-              <RotateCcw size={13} />
-              Restablecer
-            </button>
-          </div>
-        </div>
+      <div className="grid lg:grid-cols-5 gap-5">
 
-        <div className="p-5">
-          <textarea
-            value={instructions}
-            onChange={e => setInstructions(e.target.value)}
-            rows={20}
-            className="w-full font-mono text-sm border border-gray-200 rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none text-gray-800 leading-relaxed bg-gray-50"
-            placeholder="Escribe aquí las instrucciones para el agente…"
-          />
-          <div className="mt-3 flex items-center justify-between">
-            <p className="text-xs text-gray-400">{instructions.length} caracteres</p>
-            <button
-              onClick={save}
-              disabled={!hasChanges || saving}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <Save size={14} />
-              {saving ? 'Guardando…' : 'Guardar instrucciones'}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h3 className="font-semibold text-gray-800 mb-3 text-sm">Sugerencias de configuración</h3>
-        <div className="space-y-2">
-          {[
-            { label: 'Nombre de empresa', hint: 'Añade "La empresa se llama [NOMBRE]" al inicio de las instrucciones' },
-            { label: 'Idioma forzado', hint: 'Añade "Responde SIEMPRE en español" o "Always respond in English"' },
-            { label: 'Tono', hint: 'Añade "Usa un tono formal/informal/cercano"' },
-            { label: 'Límite de temas', hint: 'Añade "Solo responde preguntas relacionadas con [TEMA]"' },
-          ].map((tip, i) => (
-            <div key={i} className="flex gap-3 p-2.5 bg-gray-50 rounded-lg">
-              <div className="w-1.5 h-1.5 bg-blue-400 rounded-full mt-1.5 flex-shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-gray-700">{tip.label}</p>
-                <p className="text-xs text-gray-500">{tip.hint}</p>
-              </div>
+        {/* Editor — 3 cols */}
+        <div className="lg:col-span-3 bg-white rounded-xl border border-gray-200">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+            <h3 className="font-semibold text-gray-800 text-sm">Instrucciones del sistema</h3>
+            <div className="flex items-center gap-3">
+              {saved && (
+                <span className="flex items-center gap-1 text-xs text-green-600">
+                  <CheckCircle size={13} /> Guardado
+                </span>
+              )}
+              {error && (
+                <span className="flex items-center gap-1 text-xs text-red-600">
+                  <AlertCircle size={13} /> {error}
+                </span>
+              )}
+              <button
+                onClick={reset}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+              >
+                <RotateCcw size={12} /> Restablecer
+              </button>
             </div>
-          ))}
+          </div>
+          <div className="p-4">
+            <textarea
+              value={instructions}
+              onChange={e => setInstructions(e.target.value)}
+              rows={22}
+              className="w-full font-mono text-sm border border-gray-200 rounded-lg p-4 focus:outline-none focus:ring-2 focus:ring-violet-400 resize-none text-gray-800 leading-relaxed bg-gray-50"
+              placeholder="Escribe aquí las instrucciones para el agente…"
+            />
+            <div className="mt-3 flex items-center justify-between">
+              <p className="text-xs text-gray-400">{instructions.length} caracteres</p>
+              <button
+                onClick={save}
+                disabled={!hasChanges || saving}
+                className="flex items-center gap-2 bg-violet-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <Save size={14} />
+                {saving ? 'Guardando…' : 'Guardar cambios'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Snippets — 2 cols */}
+        <div className="lg:col-span-2 space-y-3">
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-800 text-sm">Bloques rápidos</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Haz clic para añadir al final de las instrucciones</p>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {SNIPPETS.map(group => (
+                <div key={group.group}>
+                  <button
+                    onClick={() => setOpenGroup(openGroup === group.group ? null : group.group)}
+                    className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    {group.group}
+                    {openGroup === group.group
+                      ? <ChevronUp size={14} className="text-gray-400" />
+                      : <ChevronDown size={14} className="text-gray-400" />
+                    }
+                  </button>
+                  {openGroup === group.group && (
+                    <div className="px-3 pb-2 space-y-1">
+                      {group.items.map(item => (
+                        <button
+                          key={item.label}
+                          onClick={() => insertSnippet(item.text)}
+                          className="w-full text-left px-3 py-2 rounded-lg text-xs text-gray-600 hover:bg-violet-50 hover:text-violet-700 transition-colors border border-transparent hover:border-violet-200"
+                        >
+                          + {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-800 space-y-1.5">
+            <p className="font-semibold">Consejos</p>
+            <p>• Usa <code className="bg-amber-100 px-1 rounded">[TEXTO]</code> para marcar valores que debes rellenar</p>
+            <p>• Las instrucciones se envían con cada mensaje del chat</p>
+            <p>• El agente solo usa la info de las fuentes, no inventa datos</p>
+            <p>• Guarda los cambios para que se apliquen al instante</p>
+          </div>
         </div>
       </div>
     </div>
