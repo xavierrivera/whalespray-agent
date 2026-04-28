@@ -2,6 +2,20 @@
 cd /home/user/app/backend
 mkdir -p ./data
 
+# Write current session credentials to runtime file
+python3 - <<PYEOF
+import os
+
+auth = os.environ.get('ANTHROPIC_AUTH_TOKEN', '')
+base = os.environ.get('ANTHROPIC_BASE_URL', '')
+hdrs = os.environ.get('ANTHROPIC_CUSTOM_HEADERS', '')
+
+with open('./data/.orchids_runtime', 'w') as f:
+    f.write(f'ANTHROPIC_AUTH_TOKEN={auth}\nANTHROPIC_BASE_URL={base}\nANTHROPIC_CUSTOM_HEADERS={hdrs}\n')
+
+print(f'[start.sh] Credentials written. Token: {auth[:20]}...')
+PYEOF
+
 exec env \
   ANTHROPIC_AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN}" \
   ANTHROPIC_API_KEY="${ANTHROPIC_AUTH_TOKEN:-${ANTHROPIC_API_KEY}}" \

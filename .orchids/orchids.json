@@ -1,6 +1,6 @@
 {
   "startupCommands": [
-    "cd /home/user/app/backend && pip install -r requirements.txt --no-cache-dir -q && bash start.sh",
+    "pkill -f uvicorn 2>/dev/null; sleep 1; cd /home/user/app/backend && pip install -r requirements.txt --no-cache-dir -q && bash start.sh",
     "cd /home/user/app/frontend && npm install && npm run dev"
   ],
   "projectId": "f92ce893-328b-45b9-95dc-449c6a7bbbaf",

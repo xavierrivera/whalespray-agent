@@ -25,31 +25,41 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 RUNTIME_CREDS_FILE = os.path.join(DATA_DIR, ".orchids_runtime")
 
-def _read_system_env():
-    """Read env vars directly from /proc/1/environ — always gets the latest rotated token."""
-    env = {}
+def _read_runtime_creds():
+    """Read credentials from the runtime file written by start.sh."""
+    creds = {"auth": "", "base": "", "hdrs_raw": ""}
+    if not os.path.exists(RUNTIME_CREDS_FILE):
+        return creds
     try:
-        with open("/proc/1/environ", "rb") as f:
-            for entry in f.read().split(b"\x00"):
-                if b"=" in entry:
-                    k, v = entry.split(b"=", 1)
-                    env[k.decode(errors="replace")] = v.decode(errors="replace")
+        current_key = None
+        with open(RUNTIME_CREDS_FILE) as f:
+            for raw in f:
+                line = raw.rstrip("\n")
+                if line.startswith("ANTHROPIC_AUTH_TOKEN="):
+                    creds["auth"] = line.split("=", 1)[1]
+                    current_key = "auth"
+                elif line.startswith("ANTHROPIC_BASE_URL="):
+                    creds["base"] = line.split("=", 1)[1]
+                    current_key = "base"
+                elif line.startswith("ANTHROPIC_CUSTOM_HEADERS="):
+                    creds["hdrs_raw"] = line.split("=", 1)[1]
+                    current_key = "hdrs_raw"
+                elif current_key == "hdrs_raw":
+                    creds["hdrs_raw"] += "\n" + line
     except Exception:
         pass
-    return env
+    return creds
 
 
 def get_anthropic_client():
-    """Build Anthropic client reading the freshest credentials on every call."""
+    """Build Anthropic client — reads runtime file on every call."""
     import uuid as _uuid
-
-    # Always read from system env (catches rotated tokens without restart)
-    sysenv = _read_system_env()
-    api_key = (sysenv.get("ANTHROPIC_AUTH_TOKEN")
-               or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+    creds = _read_runtime_creds()
+    api_key = (creds["auth"].strip()
+               or os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
                or os.environ.get("ANTHROPIC_API_KEY", ""))
-    base_url = sysenv.get("ANTHROPIC_BASE_URL") or os.environ.get("ANTHROPIC_BASE_URL", "")
-    custom_raw = sysenv.get("ANTHROPIC_CUSTOM_HEADERS") or os.environ.get("ANTHROPIC_CUSTOM_HEADERS", "")
+    base_url = creds["base"].strip() or os.environ.get("ANTHROPIC_BASE_URL", "")
+    custom_raw = creds["hdrs_raw"].strip() or os.environ.get("ANTHROPIC_CUSTOM_HEADERS", "")
 
     headers = {}
     for line in custom_raw.splitlines():
