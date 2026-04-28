@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Form, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Form, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -556,6 +556,27 @@ def crawl_status():
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/api/refresh-credentials")
+def refresh_credentials(request: Request):
+    """Called by frontend on load to update credentials from request headers."""
+    # Extract Orchids headers from the incoming request and save to runtime file
+    orchids_headers = {k: v for k, v in request.headers.items() if k.startswith("x-orchids")}
+    auth = (request.headers.get("x-orchids-api-key")
+            or request.headers.get("authorization", "").replace("Bearer ", ""))
+
+    if not auth:
+        return {"ok": False, "reason": "no auth header"}
+
+    base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
+    hdrs_text = "\n".join(f"{k}: {v}" for k, v in orchids_headers.items())
+
+    content = f"ANTHROPIC_AUTH_TOKEN={auth}\nANTHROPIC_BASE_URL={base_url}\nANTHROPIC_CUSTOM_HEADERS={hdrs_text}\n"
+    with open(RUNTIME_CREDS_FILE, "w") as f:
+        f.write(content)
+
+    return {"ok": True}
 
 @app.get("/api/debug-claude")
 def debug_claude():
