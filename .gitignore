@@ -1,0 +1,12 @@
+node_modules/
+__pycache__/
+*.pyc
+.env
+*.egg-info/
+dist/
+.vite/
+backend/data/chroma/
+backend/data/pdfs/
+backend/data/agent.db
+frontend/node_modules/
+frontend/dist/
