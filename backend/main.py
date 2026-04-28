@@ -21,6 +21,52 @@ load_dotenv()  # Does NOT override system env vars
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+RUNTIME_CREDS_FILE = "./data/.orchids_runtime"
+
+def get_anthropic_client():
+    """Build Anthropic client reading credentials fresh on every call."""
+    import uuid as _uuid
+
+    # Parse runtime file: top-level keys are UPPER_CASE= lines,
+    # continuation lines belong to the previous key
+    creds = {}
+    if os.path.exists(RUNTIME_CREDS_FILE):
+        with open(RUNTIME_CREDS_FILE) as f:
+            current_key = None
+            for raw in f:
+                line = raw.rstrip("\n")
+                # Top-level key: UPPERCASE_WORD=value
+                if line and line.split("=")[0].replace("_","").isupper() and "=" in line:
+                    k, v = line.split("=", 1)
+                    current_key = k.strip()
+                    creds[current_key] = v
+                elif current_key:
+                    # Continuation line (multi-line value like ANTHROPIC_CUSTOM_HEADERS)
+                    creds[current_key] += "\n" + line
+
+    # Fall back to live env vars
+    api_key = (creds.get("ANTHROPIC_AUTH_TOKEN", "").strip()
+               or os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+               or os.environ.get("ANTHROPIC_API_KEY", ""))
+    base_url = (creds.get("ANTHROPIC_BASE_URL", "").strip()
+                or os.environ.get("ANTHROPIC_BASE_URL", ""))
+    custom_raw = (creds.get("ANTHROPIC_CUSTOM_HEADERS", "").strip()
+                  or os.environ.get("ANTHROPIC_CUSTOM_HEADERS", ""))
+
+    headers = {}
+    for line in custom_raw.splitlines():
+        if ":" in line:
+            k, v = line.split(":", 1)
+            headers[k.strip()] = v.strip()
+    # Always use fresh per-request UUIDs for Orchids tracking headers
+    headers["x-orchids-token-usage-request-id"] = str(_uuid.uuid4())
+    headers["x-orchids-assistant-message-id"] = str(_uuid.uuid4())
+
+    kwargs = {"api_key": api_key, "default_headers": headers}
+    if base_url:
+        kwargs["base_url"] = base_url
+    return anthropic.Anthropic(**kwargs)
+
 app = FastAPI(title="Customer Service Agent API")
 
 app.add_middleware(
@@ -126,9 +172,6 @@ def update_instructions(data: InstructionsUpdate):
 
 @app.post("/api/chat")
 async def chat(data: ChatMessage, db: Session = Depends(get_db)):
-    api_key = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured")
 
     # Save user message
     db.add(Conversation(session_id=data.session_id, role="user", content=data.message))
@@ -168,21 +211,7 @@ async def chat(data: ChatMessage, db: Session = Depends(get_db)):
         messages.append({"role": "user", "content": f"{system_prompt}\n\n---\n\nPregunta del usuario: {data.message}"})
 
     try:
-        base_url = os.environ.get("ANTHROPIC_BASE_URL")
-        custom_headers_raw = os.environ.get("ANTHROPIC_CUSTOM_HEADERS", "")
-        custom_headers = {}
-        for line in custom_headers_raw.splitlines():
-            if ":" in line:
-                k, v = line.split(":", 1)
-                custom_headers[k.strip()] = v.strip()
-        # Orchids tracking IDs are single-use — generate fresh ones per request
-        import uuid as _uuid
-        custom_headers["x-orchids-token-usage-request-id"] = str(_uuid.uuid4())
-        custom_headers["x-orchids-assistant-message-id"] = str(_uuid.uuid4())
-        client_kwargs = {"api_key": api_key, "default_headers": custom_headers}
-        if base_url:
-            client_kwargs["base_url"] = base_url
-        client = anthropic.Anthropic(**client_kwargs)
+        client = get_anthropic_client()
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1024,
@@ -530,18 +559,9 @@ def health():
 
 @app.get("/api/debug-claude")
 def debug_claude():
-    import uuid as _u
-    api_key = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY","")
-    base_url = os.environ.get("ANTHROPIC_BASE_URL","")
-    raw = os.environ.get("ANTHROPIC_CUSTOM_HEADERS","")
-    hdrs = {}
-    for line in raw.splitlines():
-        if ":" in line: k,v=line.split(":",1); hdrs[k.strip()]=v.strip()
-    hdrs["x-orchids-token-usage-request-id"] = str(_u.uuid4())
-    hdrs["x-orchids-assistant-message-id"] = str(_u.uuid4())
     try:
-        client = anthropic.Anthropic(api_key=api_key, base_url=base_url or None, default_headers=hdrs)
+        client = get_anthropic_client()
         r = client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=20, messages=[{"role":"user","content":"hola"}])
-        return {"ok": True, "response": r.content[0].text, "key_prefix": api_key[:15], "base_url": base_url[:40]}
+        return {"ok": True, "response": r.content[0].text}
     except Exception as e:
-        return {"ok": False, "error": str(e), "key_prefix": api_key[:15], "base_url": base_url[:40], "hdrs_count": len(hdrs)}
+        return {"ok": False, "error": str(e)}
