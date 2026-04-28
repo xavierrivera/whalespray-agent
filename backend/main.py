@@ -52,7 +52,10 @@ def _read_runtime_creds():
 
 
 def get_anthropic_client():
-    """Build Anthropic client — reads runtime file on every call."""
+    """Build Anthropic client.
+    - Dev (Orchids): reads rotating token from runtime file + sends custom headers
+    - Production (Railway): reads ANTHROPIC_API_KEY env var, no custom headers needed
+    """
     import uuid as _uuid
     creds = _read_runtime_creds()
     api_key = (creds["auth"].strip()
@@ -66,19 +69,27 @@ def get_anthropic_client():
         if ":" in line:
             k, v = line.split(":", 1)
             headers[k.strip()] = v.strip()
-    headers["x-orchids-token-usage-request-id"] = str(_uuid.uuid4())
-    headers["x-orchids-assistant-message-id"] = str(_uuid.uuid4())
+    # Orchids dev proxy requires these (ignored in production)
+    if base_url or custom_raw:
+        headers["x-orchids-token-usage-request-id"] = str(_uuid.uuid4())
+        headers["x-orchids-assistant-message-id"] = str(_uuid.uuid4())
 
-    kwargs = {"api_key": api_key or "placeholder", "default_headers": headers}
+    kwargs = {"api_key": api_key or "placeholder"}
+    if headers:
+        kwargs["default_headers"] = headers
     if base_url:
         kwargs["base_url"] = base_url
     return anthropic.Anthropic(**kwargs)
 
 app = FastAPI(title="Customer Service Agent API")
 
+# CORS: allow all in dev; restrict to FRONTEND_URL in production
+_FRONTEND_URL = os.environ.get("FRONTEND_URL", "")
+_cors_origins = [_FRONTEND_URL] if _FRONTEND_URL else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
