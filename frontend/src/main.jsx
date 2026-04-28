@@ -4,8 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App.jsx'
 import './index.css'
 
-// Refresh backend credentials on every page load (Orchids tokens rotate per session)
-fetch('/api/refresh-credentials', { method: 'POST' }).catch(() => {})
+// Token is managed server-side via start.sh
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
