@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session
 
 from database import init_db, get_db, Conversation, Contact, DataSource
 import rag_engine
+import requests
+from bs4 import BeautifulSoup
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -92,6 +94,10 @@ class InstructionsUpdate(BaseModel):
 
 class UrlIngest(BaseModel):
     url: str
+
+class SiteCrawl(BaseModel):
+    url: str
+    max_pages: int = 100
 
 
 # ─── Instructions ─────────────────────────────────────────────────────────────
@@ -386,6 +392,108 @@ def delete_source(source_id: int, db: Session = Depends(get_db)):
     db.delete(source)
     db.commit()
     return {"ok": True}
+
+
+
+# ─── Crawler ──────────────────────────────────────────────────────────────────
+
+# In-memory crawler status
+crawler_status = {"running": False, "total": 0, "done": 0, "found": 0, "current": ""}
+
+def _crawl_site(base_url: str, max_pages: int):
+    from urllib.parse import urljoin, urlparse
+    from database import SessionLocal
+    import time
+
+    crawler_status["running"] = True
+    crawler_status["total"] = 0
+    crawler_status["done"] = 0
+    crawler_status["found"] = 0
+    crawler_status["current"] = base_url
+
+    parsed_base = urlparse(base_url)
+    base_domain = parsed_base.netloc
+
+    visited = set()
+    to_visit = [base_url]
+    found_urls = []
+
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; CustomerServiceBot/1.0)"}
+
+    # Phase 1: discover all URLs
+    logger.info(f"Crawling {base_url} — max {max_pages} pages")
+    while to_visit and len(found_urls) < max_pages:
+        url = to_visit.pop(0)
+        if url in visited:
+            continue
+        visited.add(url)
+        crawler_status["current"] = url
+
+        try:
+            resp = requests.get(url, headers=headers, timeout=10)
+            if "text/html" not in resp.headers.get("content-type", ""):
+                continue
+            soup = BeautifulSoup(resp.content, "lxml")
+            found_urls.append(url)
+            crawler_status["found"] = len(found_urls)
+
+            # Discover new links
+            for a in soup.find_all("a", href=True):
+                href = a["href"].strip()
+                if not href or href.startswith("#") or href.startswith("mailto:") or href.startswith("tel:"):
+                    continue
+                full = urljoin(url, href).split("#")[0].split("?")[0]
+                p = urlparse(full)
+                if p.netloc == base_domain and full not in visited and full not in to_visit:
+                    # Skip non-content paths
+                    skip_ext = (".pdf", ".jpg", ".png", ".gif", ".svg", ".css", ".js", ".zip", ".xml")
+                    if not any(p.path.lower().endswith(e) for e in skip_ext):
+                        to_visit.append(full)
+        except Exception as e:
+            logger.warning(f"Crawl skip {url}: {e}")
+
+    crawler_status["total"] = len(found_urls)
+    logger.info(f"Crawl found {len(found_urls)} pages. Indexing...")
+
+    # Phase 2: index each page
+    db = SessionLocal()
+    try:
+        for url in found_urls:
+            crawler_status["current"] = url
+            # Check if already indexed
+            existing = db.query(DataSource).filter(
+                DataSource.source_path == url,
+                DataSource.source_type == "url"
+            ).first()
+            if existing:
+                crawler_status["done"] += 1
+                continue
+
+            source = DataSource(name=url, source_type="url", source_path=url, status="pending")
+            db.add(source)
+            db.commit()
+            db.refresh(source)
+            process_url_background(source.id, url)
+            crawler_status["done"] += 1
+    finally:
+        db.close()
+
+    crawler_status["running"] = False
+    crawler_status["current"] = ""
+    logger.info("Crawl complete.")
+
+
+@app.post("/api/sources/crawl")
+async def crawl_site(background_tasks: BackgroundTasks, data: SiteCrawl):
+    if crawler_status["running"]:
+        raise HTTPException(status_code=409, detail="Ya hay un crawl en curso")
+    background_tasks.add_task(_crawl_site, data.url, data.max_pages)
+    return {"ok": True, "message": f"Crawl iniciado para {data.url}"}
+
+
+@app.get("/api/sources/crawl/status")
+def crawl_status():
+    return crawler_status
 
 
 @app.get("/api/health")
