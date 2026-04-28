@@ -25,59 +25,31 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 RUNTIME_CREDS_FILE = os.path.join(DATA_DIR, ".orchids_runtime")
 
-def _refresh_runtime_if_needed():
-    """Overwrite runtime file with current env vars if the token has changed."""
-    current = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
-    if not current:
-        return
+def _read_system_env():
+    """Read env vars directly from /proc/1/environ — always gets the latest rotated token."""
+    env = {}
     try:
-        stored = ""
-        if os.path.exists(RUNTIME_CREDS_FILE):
-            with open(RUNTIME_CREDS_FILE) as f:
-                for line in f:
-                    if line.startswith("ANTHROPIC_AUTH_TOKEN="):
-                        stored = line.split("=", 1)[1].strip()
-                        break
-        if stored != current:
-            base = os.environ.get("ANTHROPIC_BASE_URL", "")
-            hdrs = os.environ.get("ANTHROPIC_CUSTOM_HEADERS", "")
-            with open(RUNTIME_CREDS_FILE, "w") as f:
-                f.write(f"ANTHROPIC_AUTH_TOKEN={current}\nANTHROPIC_BASE_URL={base}\nANTHROPIC_CUSTOM_HEADERS={hdrs}\n")
+        with open("/proc/1/environ", "rb") as f:
+            for entry in f.read().split(b"\x00"):
+                if b"=" in entry:
+                    k, v = entry.split(b"=", 1)
+                    env[k.decode(errors="replace")] = v.decode(errors="replace")
     except Exception:
         pass
+    return env
 
 
-def get_anthropic_client(req_headers: dict = None):
-    """Build Anthropic client, always reading the freshest credentials."""
+def get_anthropic_client():
+    """Build Anthropic client reading the freshest credentials on every call."""
     import uuid as _uuid
 
-    _refresh_runtime_if_needed()
-
-    # Read from runtime file (most up-to-date)
-    creds = {"auth": "", "base": "", "hdrs_raw": ""}
-    if os.path.exists(RUNTIME_CREDS_FILE):
-        try:
-            current_key = None
-            with open(RUNTIME_CREDS_FILE) as f:
-                for raw in f:
-                    line = raw.rstrip("\n")
-                    if line.startswith("ANTHROPIC_AUTH_TOKEN="):
-                        creds["auth"] = line.split("=", 1)[1]
-                        current_key = "auth"
-                    elif line.startswith("ANTHROPIC_BASE_URL="):
-                        creds["base"] = line.split("=", 1)[1]
-                        current_key = "base"
-                    elif line.startswith("ANTHROPIC_CUSTOM_HEADERS="):
-                        creds["hdrs_raw"] = line.split("=", 1)[1]
-                        current_key = "hdrs_raw"
-                    elif current_key == "hdrs_raw":
-                        creds["hdrs_raw"] += "\n" + line
-        except Exception:
-            pass
-
-    api_key = creds["auth"].strip() or os.environ.get("ANTHROPIC_AUTH_TOKEN", "") or os.environ.get("ANTHROPIC_API_KEY", "")
-    base_url = creds["base"].strip() or os.environ.get("ANTHROPIC_BASE_URL", "")
-    custom_raw = creds["hdrs_raw"].strip() or os.environ.get("ANTHROPIC_CUSTOM_HEADERS", "")
+    # Always read from system env (catches rotated tokens without restart)
+    sysenv = _read_system_env()
+    api_key = (sysenv.get("ANTHROPIC_AUTH_TOKEN")
+               or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+               or os.environ.get("ANTHROPIC_API_KEY", ""))
+    base_url = sysenv.get("ANTHROPIC_BASE_URL") or os.environ.get("ANTHROPIC_BASE_URL", "")
+    custom_raw = sysenv.get("ANTHROPIC_CUSTOM_HEADERS") or os.environ.get("ANTHROPIC_CUSTOM_HEADERS", "")
 
     headers = {}
     for line in custom_raw.splitlines():
