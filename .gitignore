@@ -10,4 +10,4 @@ backend/data/pdfs/
 backend/data/agent.db
 frontend/node_modules/
 frontend/dist/
-backend/.env
+# backend/.env # Removed by Orchids to allow .env files
