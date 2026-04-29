@@ -10,3 +10,4 @@ backend/data/pdfs/
 backend/data/agent.db
 frontend/node_modules/
 frontend/dist/
+backend/.env
