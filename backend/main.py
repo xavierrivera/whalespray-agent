@@ -94,7 +94,7 @@ def llm_chat(system_prompt: str, messages: list, max_tokens: int = 1024) -> str:
         # Groq uses OpenAI-compatible format with system message
         groq_messages = [{"role": "system", "content": system_prompt}] + messages
         response = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
+            model="llama-3.3-70b-versatile",
             messages=groq_messages,
             max_tokens=max_tokens,
             temperature=0.3,
