@@ -11,6 +11,10 @@ import aiofiles
 import logging
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
+try:
+    from groq import Groq as GroqClient
+except ImportError:
+    GroqClient = None
 
 from database import init_db, get_db, Conversation, Contact, DataSource
 import rag_engine
@@ -52,10 +56,7 @@ def _read_runtime_creds():
 
 
 def get_anthropic_client():
-    """Build Anthropic client.
-    - Dev (Orchids): reads rotating token from runtime file + sends custom headers
-    - Production (Railway): reads ANTHROPIC_API_KEY env var, no custom headers needed
-    """
+    """Build Anthropic client (dev/Orchids only)."""
     import uuid as _uuid
     creds = _read_runtime_creds()
     api_key = (creds["auth"].strip()
@@ -69,7 +70,6 @@ def get_anthropic_client():
         if ":" in line:
             k, v = line.split(":", 1)
             headers[k.strip()] = v.strip()
-    # Orchids dev proxy requires these (ignored in production)
     if base_url or custom_raw:
         headers["x-orchids-token-usage-request-id"] = str(_uuid.uuid4())
         headers["x-orchids-assistant-message-id"] = str(_uuid.uuid4())
@@ -80,6 +80,41 @@ def get_anthropic_client():
     if base_url:
         kwargs["base_url"] = base_url
     return anthropic.Anthropic(**kwargs)
+
+
+def llm_chat(system_prompt: str, messages: list, max_tokens: int = 1024) -> str:
+    """
+    Unified LLM call. Uses:
+    - Groq  if GROQ_API_KEY is set  (production — free tier, very fast)
+    - Anthropic otherwise           (dev/Orchids environment)
+    """
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    if groq_key and GroqClient:
+        client = GroqClient(api_key=groq_key)
+        # Groq uses OpenAI-compatible format with system message
+        groq_messages = [{"role": "system", "content": system_prompt}] + messages
+        response = client.chat.completions.create(
+            model="llama-3.1-70b-versatile",
+            messages=groq_messages,
+            max_tokens=max_tokens,
+            temperature=0.3,
+        )
+        return response.choices[0].message.content
+    else:
+        # Anthropic (Orchids dev proxy doesn't support system= param,
+        # so inject system prompt into first user message)
+        client = get_anthropic_client()
+        if messages and messages[0]["role"] == "user" and len(messages) == 1:
+            messages[0]["content"] = f"{system_prompt}\n\n---\n\nPregunta del usuario: {messages[0]['content']}"
+        else:
+            # multi-turn: prepend system to first user message if not already done
+            pass
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=max_tokens,
+            messages=messages,
+        )
+        return response.content[0].text
 
 app = FastAPI(title="Customer Service Agent API")
 
@@ -216,28 +251,17 @@ async def chat(data: ChatMessage, db: Session = Depends(get_db)):
     instructions = read_instructions()
     system_prompt = instructions + context_block
 
-    # Build messages for Claude
-    # Note: system prompt injected as first user turn (proxy doesn't support system= param)
+    # Build message history
     messages = []
-    history_msgs = history[:-1]  # Exclude last user message
-    if history_msgs:
-        for msg in history_msgs:
-            messages.append({"role": msg.role, "content": msg.content})
-        messages.append({"role": "user", "content": data.message})
-    else:
-        # First turn: prepend system instructions as part of first user message
-        messages.append({"role": "user", "content": f"{system_prompt}\n\n---\n\nPregunta del usuario: {data.message}"})
+    history_msgs = history[:-1]  # Exclude last user message (already saved above)
+    for msg in history_msgs:
+        messages.append({"role": msg.role, "content": msg.content})
+    messages.append({"role": "user", "content": data.message})
 
     try:
-        client = get_anthropic_client()
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
-            messages=messages
-        )
-        assistant_message = response.content[0].text
+        assistant_message = llm_chat(system_prompt, messages)
     except Exception as e:
-        logger.error(f"Claude API error: {e}")
+        logger.error(f"LLM error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
     # Save assistant response
@@ -611,8 +635,8 @@ def refresh_credentials(request: Request):
 @app.get("/api/debug-claude")
 def debug_claude():
     try:
-        client = get_anthropic_client()
-        r = client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=20, messages=[{"role":"user","content":"hola"}])
-        return {"ok": True, "response": r.content[0].text}
+        provider = "groq" if (os.environ.get("GROQ_API_KEY") and GroqClient) else "anthropic"
+        response = llm_chat("Eres un asistente.", [{"role": "user", "content": "di hola brevemente"}], max_tokens=30)
+        return {"ok": True, "provider": provider, "response": response}
     except Exception as e:
         return {"ok": False, "error": str(e)}
