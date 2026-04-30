@@ -203,12 +203,23 @@ class SiteCrawl(BaseModel):
 # ─── Instructions ─────────────────────────────────────────────────────────────
 
 INSTRUCTIONS_FILE = os.path.join(DATA_DIR, "instructions.txt")
+MEMORY_FILE = os.path.join(DATA_DIR, "agent_memory.txt")
 
 def read_instructions() -> str:
     if os.path.exists(INSTRUCTIONS_FILE):
         with open(INSTRUCTIONS_FILE, "r", encoding="utf-8") as f:
             return f.read()
     return ""
+
+def read_memory() -> str:
+    if os.path.exists(MEMORY_FILE):
+        with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    return ""
+
+def append_memory(note: str):
+    with open(MEMORY_FILE, "a", encoding="utf-8") as f:
+        f.write(f"\n- {note.strip()}")
 
 @app.get("/api/instructions")
 def get_instructions():
@@ -218,6 +229,23 @@ def get_instructions():
 def update_instructions(data: InstructionsUpdate):
     with open(INSTRUCTIONS_FILE, "w", encoding="utf-8") as f:
         f.write(data.instructions)
+    return {"ok": True}
+
+@app.get("/api/memory")
+def get_memory():
+    return {"memory": read_memory()}
+
+@app.put("/api/memory")
+def update_memory(data: dict):
+    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+        f.write(data.get("memory", ""))
+    return {"ok": True}
+
+@app.post("/api/memory/append")
+def add_memory_note(data: dict):
+    note = data.get("note", "").strip()
+    if note:
+        append_memory(note)
     return {"ok": True}
 
 
@@ -237,19 +265,29 @@ async def chat(data: ChatMessage, db: Session = Depends(get_db)):
         .all()
 
     # Search relevant context
-    context_docs = rag_engine.search(data.message, n_results=6)
+    context_docs = rag_engine.search(data.message, n_results=8)
 
-    # Build context block
+    # Build context block — include URLs so agent can cite them
     if context_docs:
-        context_text = "\n\n---\n\n".join(
-            f"[Fuente: {d['source']}]\n{d['content']}" for d in context_docs
-        )
-        context_block = f"\n\n=== INFORMACIÓN DISPONIBLE EN LA BASE DE CONOCIMIENTO ===\n{context_text}\n=== FIN DE LA INFORMACIÓN ==="
+        parts = []
+        for d in context_docs:
+            header = f"[Fuente: {d['source']}"
+            if d.get("url"):
+                header += f" | URL: {d['url']}"
+            header += "]"
+            parts.append(f"{header}\n{d['content']}")
+        context_text = "\n\n---\n\n".join(parts)
+        context_block = f"\n\n=== INFORMACIÓN DE LA BASE DE CONOCIMIENTO ===\n{context_text}\n=== FIN ==="
     else:
         context_block = "\n\n[No se encontró información relevante en la base de conocimiento para esta consulta.]"
 
     instructions = read_instructions()
-    system_prompt = instructions + context_block
+
+    # Memory: corrections and learned behaviors that apply to ALL chats
+    memory = read_memory()
+    memory_block = f"\n\n=== MEMORIA / CORRECCIONES APRENDIDAS ===\n{memory}\n=== FIN ===" if memory else ""
+
+    system_prompt = instructions + memory_block + context_block
 
     # Build message history
     messages = []

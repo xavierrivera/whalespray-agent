@@ -153,12 +153,13 @@ def search(query: str, n_results: int = 6) -> List[dict]:
     docs = []
     for i, doc in enumerate(results["documents"][0]):
         distance = results["distances"][0][i]
-        # Filter out low relevance results (cosine distance > 0.7)
         if distance < 0.7:
+            meta = results["metadatas"][0][i]
             docs.append({
                 "content": doc,
-                "source": results["metadatas"][0][i].get("source", ""),
-                "source_type": results["metadatas"][0][i].get("source_type", ""),
+                "source": meta.get("source", ""),
+                "source_type": meta.get("source_type", ""),
+                "url": meta.get("url", ""),   # URL de la página web (vacío en PDFs)
                 "distance": distance
             })
 
