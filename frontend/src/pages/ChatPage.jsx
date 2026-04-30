@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import axios from 'axios'
+import ReactMarkdown from 'react-markdown'
 import { Send, User, Bot, Phone, X, CheckCircle, FileText, Globe } from 'lucide-react'
 
 const SESSION_KEY = 'chat_session_id'
@@ -28,7 +29,7 @@ function MessageBubble({ msg }) {
           ? 'bg-blue-600 text-white rounded-tr-sm'
           : 'bg-white border border-gray-200 text-gray-800 rounded-tl-sm shadow-sm'
       }`}>
-        <div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+        <div className="prose-chat text-sm leading-relaxed [\<div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>_a]:text-blue-600 [\<div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>_a]:underline [\<div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>_a:hover]:text-blue-800 [\<div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>_p]:mb-1 [\<div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>_ul]:list-disc [\<div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>_ul]:pl-4 [\<div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>_li]:mb-0.5"><ReactMarkdown>{msg.content}</ReactMarkdown></div>
         {msg.sources && msg.sources.length > 0 && (
           <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap gap-1">
             {msg.sources.slice(0, 3).map((s, i) => (
