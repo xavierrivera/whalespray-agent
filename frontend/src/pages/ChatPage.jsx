@@ -29,7 +29,16 @@ function MessageBubble({ msg }) {
           ? 'bg-blue-600 text-white rounded-tr-sm'
           : 'bg-white border border-gray-200 text-gray-800 rounded-tl-sm shadow-sm'
       }`}>
-        <div className="prose-chat text-sm leading-relaxed [\<div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>_a]:text-blue-600 [\<div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>_a]:underline [\<div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>_a:hover]:text-blue-800 [\<div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>_p]:mb-1 [\<div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>_ul]:list-disc [\<div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>_ul]:pl-4 [\<div className="prose-chat text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>_li]:mb-0.5"><ReactMarkdown>{msg.content}</ReactMarkdown></div>
+        <div className="prose-chat text-sm leading-relaxed">
+          <ReactMarkdown
+            components={{
+              a: ({href, children}) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline hover:text-blue-800">{children}</a>,
+              p: ({children}) => <p className="mb-1 last:mb-0">{children}</p>,
+              ul: ({children}) => <ul className="list-disc pl-4 mb-1">{children}</ul>,
+              li: ({children}) => <li className="mb-0.5">{children}</li>,
+            }}
+          >{msg.content}</ReactMarkdown>
+        </div>
         {msg.sources && msg.sources.length > 0 && (
           <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap gap-1">
             {msg.sources.slice(0, 3).map((s, i) => (
