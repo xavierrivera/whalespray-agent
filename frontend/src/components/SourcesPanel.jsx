@@ -33,9 +33,11 @@ export default function SourcesPanel() {
   const [excludeList, setExcludeList] = useState([])
   const [crawlerStatus, setCrawlerStatus] = useState({ running: false, total: 0, done: 0, found: 0, skipped: 0, current: '' })
 
+  const B = import.meta.env.VITE_BACKEND_URL || ''
+
   const loadSources = async () => {
     try {
-      const res = await axios.get('/api/sources')
+      const res = await axios.get(`${B}/api/sources`)
       setSources(res.data.sources)
       setTotalChunks(res.data.total_chunks)
     } catch {}
@@ -43,7 +45,7 @@ export default function SourcesPanel() {
 
   const loadCrawlerStatus = async () => {
     try {
-      const res = await axios.get('/api/sources/crawl/status')
+      const res = await axios.get(`${B}/api/sources/crawl/status`)
       setCrawlerStatus(res.data)
     } catch {}
   }
@@ -66,7 +68,7 @@ export default function SourcesPanel() {
         const fd = new FormData()
         fd.append('file', file)
         try {
-          await axios.post('/api/sources/pdf', fd)
+          await axios.post(`${B}/api/sources/pdf`, fd)
           setUploadProgress(prev => prev.map((p, j) => j === i ? { ...p, status: 'done' } : p))
         } catch {
           setUploadProgress(prev => prev.map((p, j) => j === i ? { ...p, status: 'error' } : p))
@@ -87,7 +89,7 @@ export default function SourcesPanel() {
     if (!url.trim()) return
     setAddingUrl(true)
     try {
-      await axios.post('/api/sources/url', { url: url.trim() })
+      await axios.post(`${B}/api/sources/url`, { url: url.trim() })
       setUrl('')
       loadSources()
     } catch (err) {
@@ -109,21 +111,27 @@ export default function SourcesPanel() {
 
   const startCrawl = async () => {
     if (!crawlUrl.trim()) return
+    // Use direct backend URL for long-running crawl (bypasses Vercel's 30s timeout)
+    const backendBase = import.meta.env.VITE_BACKEND_URL || ''
+    const endpoint = backendBase ? `${backendBase}/api/sources/crawl` : '/api/sources/crawl'
     try {
-      await axios.post('/api/sources/crawl', {
-        url: crawlUrl.trim(),
-        max_pages: maxPages,
-        exclude_patterns: excludeList
-      })
-      loadCrawlerStatus()
+      // Fire-and-forget with short timeout — crawl runs in background on server
+      fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: crawlUrl.trim(), max_pages: maxPages, exclude_patterns: excludeList }),
+        signal: AbortSignal.timeout(8000)
+      }).catch(() => {}) // ignore timeout — server keeps running
+      // Poll status after short delay
+      setTimeout(loadCrawlerStatus, 1500)
     } catch (err) {
-      alert('Error: ' + (err.response?.data?.detail || err.message))
+      alert('Error: ' + err.message)
     }
   }
 
   const deleteSource = async (id) => {
     if (!confirm('¿Eliminar esta fuente?')) return
-    await axios.delete(`/api/sources/${id}`)
+    await axios.delete(`${B}/api/sources/${id}`)
     loadSources()
   }
 
