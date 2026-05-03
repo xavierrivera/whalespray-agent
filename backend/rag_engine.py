@@ -180,33 +180,57 @@ def delete_source(source_id: int):
         collection.delete(ids=results["ids"])
 
 
-def search(query: str, n_results: int = 6) -> List[dict]:
+def search(query: str, n_results: int = 8) -> List[dict]:
+    """
+    Hybrid search: combines semantic (ChromaDB) + keyword (BM25) results.
+    Final score = 0.6 * semantic + 0.4 * bm25  (Reciprocal Rank Fusion)
+    """
     collection = get_collection()
     count = collection.count()
     if count == 0:
         return []
 
-    n_results = min(n_results, count)
-    results = collection.query(
+    fetch = min(max(n_results * 3, 20), count)
+
+    # ── 1. Semantic search ──────────────────────────────────────
+    sem_results = collection.query(
         query_texts=[query],
-        n_results=n_results,
+        n_results=fetch,
         include=["documents", "metadatas", "distances"]
     )
+    sem_docs = []
+    for i, doc in enumerate(sem_results["documents"][0]):
+        meta = sem_results["metadatas"][0][i]
+        sem_docs.append({
+            "content": doc,
+            "source": meta.get("source", ""),
+            "source_type": meta.get("source_type", ""),
+            "url": meta.get("url", ""),
+            "distance": sem_results["distances"][0][i],
+        })
 
-    docs = []
-    for i, doc in enumerate(results["documents"][0]):
-        distance = results["distances"][0][i]
-        if distance < 0.7:
-            meta = results["metadatas"][0][i]
-            docs.append({
-                "content": doc,
-                "source": meta.get("source", ""),
-                "source_type": meta.get("source_type", ""),
-                "url": meta.get("url", ""),   # URL de la página web (vacío en PDFs)
-                "distance": distance
-            })
+    # ── 2. BM25 keyword search over the semantic candidates ─────
+    try:
+        from rank_bm25 import BM25Okapi
+        tokenized = [d["content"].lower().split() for d in sem_docs]
+        bm25 = BM25Okapi(tokenized)
+        bm25_scores = bm25.get_scores(query.lower().split())
+        max_bm25 = max(bm25_scores) or 1.0
+    except Exception:
+        bm25_scores = [0.0] * len(sem_docs)
+        max_bm25 = 1.0
 
-    return docs
+    # ── 3. Reciprocal Rank Fusion ───────────────────────────────
+    for i, doc in enumerate(sem_docs):
+        sem_score = 1.0 - doc["distance"]           # convert distance → similarity
+        kw_score  = float(bm25_scores[i]) / max_bm25
+        doc["hybrid_score"] = 0.6 * sem_score + 0.4 * kw_score
+
+    # Filter noise and sort by hybrid score
+    filtered = [d for d in sem_docs if d["distance"] < 0.75]
+    filtered.sort(key=lambda x: x["hybrid_score"], reverse=True)
+
+    return filtered[:n_results]
 
 
 def get_stats() -> dict:
