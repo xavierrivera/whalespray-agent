@@ -1,9 +1,9 @@
-ANTHROPIC_AUTH_TOKEN=orx_0abb78820318064ae19fb42f54f8372abdb35cdbfd1d321b
+ANTHROPIC_AUTH_TOKEN=orx_7ca8d09482c092e4d69cbca396f54edf6fdc225303c5608c
 ANTHROPIC_BASE_URL=https://orchids-server.calmstone-6964e08a.westeurope.azurecontainerapps.io/anthropic
-ANTHROPIC_CUSTOM_HEADERS=x-orchids-api-key: orx_0abb78820318064ae19fb42f54f8372abdb35cdbfd1d321b
+ANTHROPIC_CUSTOM_HEADERS=x-orchids-api-key: orx_7ca8d09482c092e4d69cbca396f54edf6fdc225303c5608c
 x-orchids-source: web
-x-orchids-run-id: claude-1777558454434-2h43bf
-x-orchids-token-usage-request-id: 7a6ca85d-d391-48c4-a91d-4e8dbd7f0b04
-x-orchids-assistant-message-id: 2eda0131-8d5f-4635-9288-d938b8a1ae25
+x-orchids-run-id: claude-1777793963451-avj1or
+x-orchids-token-usage-request-id: e8389f2d-b10d-4bd3-9356-e9d5d0690562
+x-orchids-assistant-message-id: 42123508-c8ea-4ae2-9876-480f94afaf65
 x-orchids-proxy-project-id: f92ce893-328b-45b9-95dc-449c6a7bbbaf
 x-orchids-proxy-chat-session-id: 288640
