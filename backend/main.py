@@ -349,9 +349,25 @@ async def chat(data: ChatMessage, db: Session = Depends(get_db)):
     db.add(Conversation(session_id=data.session_id, role="assistant", content=assistant_message))
     db.commit()
 
+    # Build product cards from web sources that have a URL (deduplicated)
+    seen_urls = set()
+    product_cards = []
+    for d in context_docs:
+        url = d.get("url", "")
+        if url and url not in seen_urls and d["source_type"] == "url":
+            seen_urls.add(url)
+            # Extract a short description from the chunk (first 120 chars)
+            snippet = d["content"][:120].strip().rstrip(".") + "…"
+            product_cards.append({
+                "title": d["source"],
+                "url": url,
+                "snippet": snippet,
+            })
+
     return {
         "response": assistant_message,
-        "sources": [{"source": d["source"], "type": d["source_type"]} for d in context_docs]
+        "sources": [{"source": d["source"], "type": d["source_type"]} for d in context_docs],
+        "product_cards": product_cards[:4],  # max 4 cards
     }
 
 

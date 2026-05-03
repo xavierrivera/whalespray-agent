@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import axios from 'axios'
 import ReactMarkdown from 'react-markdown'
-import { Send, User, Bot, Phone, X, CheckCircle, FileText, Globe } from 'lucide-react'
+import { Send, User, Bot, Phone, X, CheckCircle, FileText, Globe, ExternalLink } from 'lucide-react'
 
 const SESSION_KEY = 'chat_session_id'
 
@@ -39,6 +39,9 @@ function MessageBubble({ msg }) {
             }}
           >{msg.content}</ReactMarkdown>
         </div>
+        {msg.product_cards && msg.product_cards.length > 0 && (
+          <ProductCards cards={msg.product_cards} />
+        )}
         {msg.sources && msg.sources.length > 0 && (
           <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap gap-1">
             {msg.sources.slice(0, 3).map((s, i) => (
@@ -50,6 +53,29 @@ function MessageBubble({ msg }) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function ProductCards({ cards }) {
+  if (!cards || cards.length === 0) return null
+  return (
+    <div className="mt-3 grid grid-cols-1 gap-2">
+      {cards.map((card, i) => (
+        <a
+          key={i}
+          href={card.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-start gap-3 bg-blue-50 border border-blue-100 hover:border-blue-300 hover:bg-blue-100 rounded-xl px-3 py-2.5 transition-colors group"
+        >
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-blue-800 truncate leading-tight">{card.title}</p>
+            <p className="text-xs text-gray-500 mt-0.5 line-clamp-2 leading-snug">{card.snippet}</p>
+          </div>
+          <ExternalLink size={13} className="text-blue-400 group-hover:text-blue-600 flex-shrink-0 mt-0.5 transition-colors" />
+        </a>
+      ))}
     </div>
   )
 }
@@ -183,7 +209,8 @@ export default function ChatPage() {
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: res.data.response,
-        sources: res.data.sources
+        sources: res.data.sources,
+        product_cards: res.data.product_cards || []
       }])
     } catch (err) {
       setMessages(prev => [...prev, {
