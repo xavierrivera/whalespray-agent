@@ -26,7 +26,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+# If RAILWAY_VOLUME_MOUNT_PATH is set, use the Railway Volume for persistent storage
+DATA_DIR = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or os.path.join(BASE_DIR, "data")
 RUNTIME_CREDS_FILE = os.path.join(DATA_DIR, ".orchids_runtime")
 
 def _read_runtime_creds():

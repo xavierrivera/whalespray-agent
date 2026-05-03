@@ -10,7 +10,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-CHROMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "chroma")
+_DATA_DIR = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+CHROMA_PATH = os.path.join(_DATA_DIR, "chroma")
 COLLECTION_NAME = "knowledge_base"
 
 
