@@ -5,7 +5,9 @@ from datetime import datetime
 import os
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE_URL = f"sqlite:///{_BASE_DIR}/data/agent.db"
+_DATA_DIR = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or os.path.join(_BASE_DIR, "data")
+os.makedirs(_DATA_DIR, exist_ok=True)
+DATABASE_URL = f"sqlite:///{_DATA_DIR}/agent.db"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
