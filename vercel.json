@@ -3,6 +3,9 @@
   "outputDirectory": "frontend/dist",
   "framework": null,
   "installCommand": "echo skip",
+  "env": {
+    "VITE_BACKEND_URL": "https://whalespray-agent-production.up.railway.app"
+  },
   "rewrites": [
     {
       "source": "/api/:path*",
