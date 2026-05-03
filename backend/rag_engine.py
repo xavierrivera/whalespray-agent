@@ -19,9 +19,51 @@ def get_chroma_client():
     return client
 
 
+def _get_embedding_function():
+    """
+    Use OpenAI-compatible embeddings via Groq or fallback to ChromaDB default.
+    Groq doesn't have embeddings API yet, so we use a lightweight local approach:
+    hash-based embeddings via chromadb's built-in, but pre-download the model on startup.
+    If ONNX fails, fall back to a simple TF-IDF style embedding.
+    """
+    try:
+        ef = embedding_functions.DefaultEmbeddingFunction()
+        # Test it works
+        ef(["test"])
+        return ef
+    except Exception as e:
+        logger.warning(f"DefaultEmbeddingFunction failed ({e}), using ONNXMiniLM fallback")
+        try:
+            return embedding_functions.ONNXMiniLM_L6_V2()
+        except Exception:
+            # Last resort: use a simple hash-based embedding (not ideal but works)
+            logger.warning("All ML embeddings failed, using hash embedding")
+            return _HashEmbeddingFunction()
+
+
+class _HashEmbeddingFunction:
+    """Simple deterministic embedding based on word hashing. No dependencies."""
+    DIM = 384
+
+    def __call__(self, input):
+        import hashlib, math
+        results = []
+        for text in input:
+            vec = [0.0] * self.DIM
+            words = text.lower().split()
+            for word in words:
+                h = int(hashlib.md5(word.encode()).hexdigest(), 16)
+                for i in range(4):
+                    idx = (h >> (i * 8)) % self.DIM
+                    vec[idx] += 1.0
+            norm = math.sqrt(sum(x*x for x in vec)) or 1.0
+            results.append([x / norm for x in vec])
+        return results
+
+
 def get_collection():
     client = get_chroma_client()
-    ef = embedding_functions.DefaultEmbeddingFunction()
+    ef = _get_embedding_function()
     collection = client.get_or_create_collection(
         name=COLLECTION_NAME,
         embedding_function=ef,
