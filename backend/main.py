@@ -320,13 +320,21 @@ async def chat(data: ChatMessage, db: Session = Depends(get_db)):
     if context_docs:
         parts = []
         for d in context_docs:
-            header = f"[Fuente: {d['source']}"
             if d.get("url"):
-                header += f" | URL: {d['url']}"
-            header += "]"
-            parts.append(f"{header}\n{d['content']}")
+                header = f"[Fuente: {d['source']} | ENLACE_EXACTO: {d['url']}]"
+                footer = f"\n→ URL obligatoria para este producto: {d['url']}"
+            else:
+                header = f"[Fuente: {d['source']} | tipo: {d['source_type']}]"
+                footer = ""
+            parts.append(f"{header}\n{d['content']}{footer}")
         context_text = "\n\n---\n\n".join(parts)
-        context_block = f"\n\n=== INFORMACIÓN DE LA BASE DE CONOCIMIENTO ===\n{context_text}\n=== FIN ==="
+        context_block = (
+            f"\n\n=== INFORMACIÓN DE LA BASE DE CONOCIMIENTO ===\n"
+            f"⚠️ INSTRUCCIÓN CRÍTICA: Si mencionas un producto que tiene ENLACE_EXACTO, "
+            f"DEBES incluir ese enlace exacto en tu respuesta. PROHIBIDO inventar URLs. "
+            f"PROHIBIDO usar whalespray-agent.vercel.app como URL de producto.\n\n"
+            f"{context_text}\n=== FIN ==="
+        )
     else:
         context_block = "\n\n[No se encontró información relevante en la base de conocimiento para esta consulta.]"
 
