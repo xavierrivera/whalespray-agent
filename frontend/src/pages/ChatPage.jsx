@@ -200,6 +200,7 @@ export default function ChatPage() {
   const sendMessage = async (text) => {
     if (!text.trim() || loading) return
     const userMsg = { role: 'user', content: text }
+    const isFirstMessage = messages.filter(m => m.role === 'user').length === 0
     setMessages(prev => [...prev, userMsg])
     setInput('')
     setLoading(true)
@@ -209,8 +210,8 @@ export default function ChatPage() {
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: res.data.response,
-        sources: res.data.sources,
-        product_cards: res.data.product_cards || []
+        sources: isFirstMessage ? [] : (res.data.sources || []),
+        product_cards: isFirstMessage ? [] : (res.data.product_cards || [])
       }])
     } catch (err) {
       setMessages(prev => [...prev, {
