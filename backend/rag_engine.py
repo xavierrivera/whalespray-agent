@@ -1,6 +1,9 @@
 import chromadb
 from chromadb.utils import embedding_functions
-import fitz  # PyMuPDF
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
 import requests
 from bs4 import BeautifulSoup
 import os
@@ -99,6 +102,8 @@ def chunk_text(text: str, chunk_size: int = 800, overlap: int = 150) -> List[str
 
 
 def extract_pdf_text(file_path: str) -> str:
+    if fitz is None:
+        raise RuntimeError("PyMuPDF no está instalado. La indexación de PDFs no está disponible en este entorno.")
     doc = fitz.open(file_path)
     text = ""
     for page in doc:
