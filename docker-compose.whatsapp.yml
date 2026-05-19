@@ -1,0 +1,68 @@
+version: "3.9"
+
+# Docker Compose para integración WhatsApp con open-wa
+# Uso: docker compose -f docker-compose.whatsapp.yml up -d
+#
+# PASOS:
+#  1. Copia .env.whatsapp.example → .env.whatsapp y rellena los valores
+#  2. docker compose -f docker-compose.whatsapp.yml up -d
+#  3. Abre http://localhost:2785 en el navegador
+#  4. Escanea el QR con WhatsApp en el teléfono de pruebas
+#  5. El agente ya responderá a los mensajes de ese número
+
+services:
+
+  # ── open-wa: gateway de WhatsApp ────────────────────────────────────────────
+  openwa:
+    image: openwa/wa-automate:latest
+    container_name: openwa
+    restart: unless-stopped
+    ports:
+      - "2785:2785"       # API REST + panel web para escanear QR
+    environment:
+      # Nombre de la sesión (debe coincidir con OPENWA_SESSION_ID del backend)
+      - SESSION_ID=whalespray-bot
+      # URL del webhook: apunta al endpoint del backend
+      - WEBHOOK_URL=http://backend:8000/webhook/whatsapp
+      # Clave de la API (protege el endpoint REST de open-wa)
+      - API_KEY=${OPENWA_API_KEY}
+      # Mantiene la sesión activa aunque se reinicie el contenedor
+      - KEEP_ALIVE=true
+      - HEADLESS=true
+      - LOG_LEVEL=info
+    volumes:
+      - openwa_session:/app/.wwebjs_auth   # Guarda la sesión de WhatsApp
+    networks:
+      - whalespray
+
+  # ── Backend FastAPI (solo si no está ya corriendo por separado) ──────────────
+  # Descomenta este bloque si quieres levantar todo junto con Docker Compose.
+  # Si ya tienes el backend corriendo en Railway, NO lo necesitas aquí.
+  #
+  # backend:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   container_name: backend
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     - GROQ_API_KEY=${GROQ_API_KEY}
+  #     - OPENWA_URL=http://openwa:2785
+  #     - OPENWA_API_KEY=${OPENWA_API_KEY}
+  #     - OPENWA_SESSION_ID=whalespray-bot
+  #   volumes:
+  #     - backend_data:/app/data
+  #   depends_on:
+  #     - openwa
+  #   networks:
+  #     - whalespray
+
+volumes:
+  openwa_session:
+  backend_data:
+
+networks:
+  whalespray:
+    driver: bridge

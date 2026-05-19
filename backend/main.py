@@ -737,3 +737,120 @@ def debug_claude():
         return {"ok": True, "provider": provider, "response": response}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+# ─── WhatsApp Webhook (open-wa) ───────────────────────────────────────────────
+
+OPENWA_URL = os.environ.get("OPENWA_URL", "http://openwa:2785")
+OPENWA_API_KEY = os.environ.get("OPENWA_API_KEY", "")
+OPENWA_SESSION_ID = os.environ.get("OPENWA_SESSION_ID", "whalespray-bot")
+
+def _strip_markdown(text: str) -> str:
+    """Remove markdown so WhatsApp receives clean text (uses *bold* natively)."""
+    import re
+    # Convert **bold** → *bold* (WhatsApp bold)
+    text = re.sub(r'\*\*(.*?)\*\*', r'*\1*', text)
+    # Remove remaining markdown: headers, code blocks, links → just text
+    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)  # [text](url) → text
+    text = re.sub(r'#{1,6}\s+', '', text)                  # ## headers
+    text = re.sub(r'`{1,3}[^`]*`{1,3}', '', text)         # `code`
+    return text.strip()
+
+@app.post("/webhook/whatsapp")
+async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
+    """
+    Receives incoming WhatsApp messages from open-wa and replies using the agent.
+    open-wa sends POST with JSON: { event, sessionId, data: { from, body, isGroup, ... } }
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        return {"ok": False, "reason": "invalid json"}
+
+    event = payload.get("event", "")
+    data = payload.get("data", {})
+
+    # Only handle incoming text messages (ignore groups, status, media, etc.)
+    if event != "message.received":
+        return {"ok": True, "reason": "ignored event"}
+
+    if data.get("isGroup", False):
+        return {"ok": True, "reason": "group message ignored"}
+
+    sender = data.get("from", "")
+    message_text = data.get("body", "").strip()
+
+    if not sender or not message_text:
+        return {"ok": True, "reason": "empty message"}
+
+    # Use WhatsApp number as session_id so each contact has its own conversation history
+    session_id = f"wa_{sender.replace('@c.us', '').replace('@s.whatsapp.net', '')}"
+
+    logger.info(f"WhatsApp message from {sender}: {message_text[:80]}")
+
+    # Save user message
+    db.add(Conversation(session_id=session_id, role="user", content=message_text))
+    db.commit()
+
+    # Get conversation history
+    history = db.query(Conversation)\
+        .filter(Conversation.session_id == session_id)\
+        .order_by(Conversation.timestamp.asc())\
+        .all()
+
+    # RAG search
+    context_docs = rag_engine.search(message_text, n_results=8)
+    if context_docs:
+        parts = []
+        for d in context_docs:
+            header = f"[Fuente: {d['source']}"
+            if d.get("url"):
+                header += f" | URL: {d['url']}"
+            header += "]"
+            parts.append(f"{header}\n{d['content']}")
+        context_block = "\n\n=== INFORMACIÓN DE LA BASE DE CONOCIMIENTO ===\n" + \
+                        "\n\n---\n\n".join(parts) + "\n=== FIN ==="
+    else:
+        context_block = "\n\n[No se encontró información relevante en la base de conocimiento para esta consulta.]"
+
+    instructions = read_instructions()
+    memory = read_memory()
+    memory_block = f"\n\n=== MEMORIA / CORRECCIONES APRENDIDAS ===\n{memory}\n=== FIN ===" if memory else ""
+    system_prompt = instructions + memory_block + context_block
+
+    # Build message list (last 10 turns)
+    messages = []
+    for msg in history[:-1]:
+        messages.append({"role": msg.role, "content": msg.content})
+    messages.append({"role": "user", "content": message_text})
+
+    try:
+        assistant_message = llm_chat(system_prompt, messages)
+    except Exception as e:
+        logger.error(f"LLM error (WhatsApp): {e}")
+        return {"ok": False, "reason": "llm error"}
+
+    # Save assistant response
+    db.add(Conversation(session_id=session_id, role="assistant", content=assistant_message))
+    db.commit()
+
+    # Send reply via open-wa REST API
+    whatsapp_text = _strip_markdown(assistant_message)
+    openwa_endpoint = f"{OPENWA_URL}/api/sessions/{OPENWA_SESSION_ID}/messages/send-text"
+    headers = {"Content-Type": "application/json"}
+    if OPENWA_API_KEY:
+        headers["X-API-Key"] = OPENWA_API_KEY
+
+    try:
+        resp = requests.post(
+            openwa_endpoint,
+            json={"chatId": sender, "text": whatsapp_text},
+            headers=headers,
+            timeout=15
+        )
+        logger.info(f"open-wa send response: {resp.status_code}")
+    except Exception as e:
+        logger.error(f"Error sending WhatsApp reply: {e}")
+        return {"ok": False, "reason": "send error"}
+
+    return {"ok": True}
