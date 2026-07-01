@@ -729,6 +729,20 @@ def refresh_credentials(request: Request):
 
     return {"ok": True}
 
+# ─── Admin Auth ─────────────────────────────────────────────────────────────────
+
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+
+@app.post("/api/admin/login")
+def admin_login(data: dict):
+    """Simple admin login: returns a token if password matches."""
+    password = data.get("password", "")
+    if password == ADMIN_PASSWORD:
+        # Simple static token — sufficient for this use case
+        return {"ok": True, "token": "admin-token-whalespray"}
+    return {"ok": False, "error": "Contraseña incorrecta"}
+
+
 @app.get("/api/debug-claude")
 def debug_claude():
     try:
