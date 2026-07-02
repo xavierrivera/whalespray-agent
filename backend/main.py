@@ -292,10 +292,64 @@ def add_memory_note(data: dict):
     return {"ok": True}
 
 
+# ─── Protección anti-abuso ──────────────────────────────────────────────────
+# Límites configurables desde variables de entorno
+RATE_LIMIT_WINDOW = int(os.environ.get("RATE_LIMIT_WINDOW", "6"))  # segundos entre mensajes
+MAX_MSG_PER_SESSION = int(os.environ.get("MAX_MSG_PER_SESSION", "100"))
+MAX_MSG_PER_IP_DAY = int(os.environ.get("MAX_MSG_PER_IP_DAY", "200"))
+
+from collections import defaultdict
+import time
+
+_ip_tracker = defaultdict(list)   # ip -> [timestamps]
+_ip_daily = defaultdict(int)      # ip -> count for today
+_last_ip_reset = [0]              # last daily reset timestamp
+
+def _check_limits(request: Request, session_id: str) -> tuple[bool, str]:
+    """Returns (ok, reason) — call BEFORE processing a chat message."""
+    now = time.time()
+    today = now // 86400  # day number (rolls over UTC)
+
+    # Reset daily counter if day changed
+    if _last_ip_reset[0] != today:
+        _ip_daily.clear()
+        _last_ip_reset[0] = today
+
+    client_ip = request.client.host if request.client else "unknown"
+
+    # 1. Rate limit (X seconds between messages from same IP)
+    timestamps = _ip_tracker[client_ip]
+    # Clean old entries
+    while timestamps and timestamps[0] < now - 60:
+        timestamps.pop(0)
+    if timestamps and (now - timestamps[-1]) < RATE_LIMIT_WINDOW:
+        remaining = int(RATE_LIMIT_WINDOW - (now - timestamps[-1]))
+        return False, f"Demasiado rápido. Espera {remaining}s entre mensajes."
+    timestamps.append(now)
+
+    # 2. Daily IP quota
+    _ip_daily[client_ip] += 1
+    if _ip_daily[client_ip] > MAX_MSG_PER_IP_DAY:
+        return False, "Has alcanzado el límite diario de mensajes."
+
+    # 3. Per-session limit (checked via DB later — we do a light check here)
+    return True, ""
+
+
 # ─── Chat ─────────────────────────────────────────────────────────────────────
 
 @app.post("/api/chat")
-async def chat(data: ChatMessage, db: Session = Depends(get_db)):
+async def chat(data: ChatMessage, request: Request, db: Session = Depends(get_db)):
+    ok, reason = _check_limits(request, data.session_id)
+    if not ok:
+        return {"response": reason, "sources": [], "product_cards": []}
+
+    # Per-session message count (DB-backed)
+    msg_count = db.query(Conversation)\
+        .filter(Conversation.session_id == data.session_id)\
+        .count()
+    if msg_count >= MAX_MSG_PER_SESSION * 2:  # user + assistant
+        return {"response": "Esta conversación ha alcanzado el límite de mensajes. Inicia una nueva.", "sources": [], "product_cards": []}
 
     # Save user message
     db.add(Conversation(session_id=data.session_id, role="user", content=data.message))
