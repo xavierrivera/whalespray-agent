@@ -4,5 +4,6 @@
     "cd /home/user/app/frontend && npm install && npm run dev"
   ],
   "projectId": "f92ce893-328b-45b9-95dc-449c6a7bbbaf",
-  "templateId": "any"
+  "templateId": "any",
+  "previewPort": 5173
 }
