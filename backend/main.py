@@ -246,7 +246,10 @@ REGLAS IMPORTANTES:
 - Responde siempre en el idioma en que te habla el usuario (castellano o inglés)
 - NUNCA inventes información que no esté en los documentos
 - Si no encuentras la información, dilo claramente y ofrece dejar datos de contacto
-- Si el usuario tiene dudas complejas, ofrécele dejar sus datos de contacto para que el equipo le llame"""
+- Si el usuario tiene dudas complejas, ofrécele dejar sus datos de contacto para que el equipo le llame
+
+IMÁGENES (OBLIGATORIO):
+Cuando un usuario adjunte una imagen, encontrarás en su mensaje una sección con "[El usuario ha adjuntado una imagen. Análisis de la imagen: ...]". Este análisis ha sido generado automáticamente por el sistema y DEBES tratarlo como información válida equivalente a un documento técnico. Úsalo para entender la superficie o material que el usuario muestra y así poder recomendarle el producto de Whalespray más adecuado. No digas que no puedes ver o analizar imágenes, porque el sistema ya lo ha hecho por ti."""
 
 def read_instructions() -> str:
     if os.path.exists(INSTRUCTIONS_FILE):
