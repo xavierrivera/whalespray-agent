@@ -409,12 +409,16 @@ async def chat(data: ChatMessage, request: Request, db: Session = Depends(get_db
 
     # ── Vision analysis (if image present) ──
     vision_result = ""
+    vision_ok = False
     search_query = data.message
     if data.image:
         vision_result = vision_analyze(data.image, data.message)
-        logger.info(f"Vision analysis: {vision_result[:100]}...")
-        # Use vision result to enhance RAG search
-        search_query = f"{data.message} - Material: {vision_result}"
+        vision_ok = not (vision_result.startswith("[Error") or vision_result.startswith("[Vision no disponible"))
+        if vision_ok:
+            logger.info(f"Vision analysis: {vision_result[:100]}...")
+            search_query = f"{data.message} - Material: {vision_result}"
+        else:
+            logger.warning(f"Vision analysis failed: {vision_result[:100]}")
 
     # Get conversation history (last 10 turns)
     history = db.query(Conversation)\
@@ -453,7 +457,7 @@ async def chat(data: ChatMessage, request: Request, db: Session = Depends(get_db
     for msg in history_msgs:
         messages.append({"role": msg.role, "content": msg.content})
     # If there's a vision analysis, include it in the user message for the LLM
-    if vision_result:
+    if vision_ok:
         user_content = f"{data.message}\n\n[El usuario ha adjuntado una imagen. Análisis de la imagen: {vision_result}]"
     else:
         user_content = data.message

@@ -205,20 +205,37 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
 
+  const MAX_IMAGE_DIM = 1024
+  const MAX_IMAGE_QUALITY = 0.7
+
   const handleImageSelect = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
-    // Max 10MB
     if (file.size > 10 * 1024 * 1024) {
       alert('La imagen es demasiado grande. Máximo 10MB.')
       return
     }
-    const reader = new FileReader()
-    reader.onload = () => {
-      setSelectedImage(reader.result)
+    // Compress/resize the image client-side before sending
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      let { width, height } = img
+      if (width > MAX_IMAGE_DIM || height > MAX_IMAGE_DIM) {
+        const ratio = Math.min(MAX_IMAGE_DIM / width, MAX_IMAGE_DIM / height)
+        width = Math.round(width * ratio)
+        height = Math.round(height * ratio)
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, width, height)
+      const compressed = canvas.toDataURL('image/jpeg', MAX_IMAGE_QUALITY)
+      setSelectedImage(compressed)
       setSelectedImageName(file.name)
+      URL.revokeObjectURL(url)
     }
-    reader.readAsDataURL(file)
+    img.src = url
     e.target.value = ''
   }
 
