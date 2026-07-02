@@ -355,7 +355,7 @@ def vision_analyze(image_b64: str, user_text: str) -> str:
     try:
         client = GroqClient(api_key=groq_key)
         response = client.chat.completions.create(
-            model="llama-3.2-90b-vision-preview",
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
             messages=[{
                 "role": "user",
                 "content": [
@@ -442,17 +442,19 @@ async def chat(data: ChatMessage, request: Request, db: Session = Depends(get_db
     memory = read_memory()
     memory_block = f"\n\n=== MEMORIA / CORRECCIONES APRENDIDAS ===\n{memory}\n=== FIN ===" if memory else ""
 
-    # Include vision result in the system prompt
-    vision_block = f"\n\n=== ANÁLISIS DE LA IMAGEN ===\n{vision_result}\n=== FIN ===" if vision_result else ""
-
-    system_prompt = instructions + memory_block + vision_block + context_block
+    system_prompt = instructions + memory_block + context_block
 
     # Build message history
     messages = []
     history_msgs = history[:-1]  # Exclude last user message (already saved above)
     for msg in history_msgs:
         messages.append({"role": msg.role, "content": msg.content})
-    messages.append({"role": "user", "content": data.message})
+    # If there's a vision analysis, include it in the user message for the LLM
+    if vision_result:
+        user_content = f"{data.message}\n\n[El usuario ha adjuntado una imagen. Análisis de la imagen: {vision_result}]"
+    else:
+        user_content = data.message
+    messages.append({"role": "user", "content": user_content})
 
     try:
         assistant_message = llm_chat(system_prompt, messages)
