@@ -219,6 +219,7 @@ export default function ChatPage() {
       setSelectedImageName(file.name)
     }
     reader.readAsDataURL(file)
+    e.target.value = ''
   }
 
   const sendMessage = async (text) => {
