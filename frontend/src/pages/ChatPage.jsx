@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import axios from 'axios'
 import ReactMarkdown from 'react-markdown'
-import { Send, User, Bot, Phone, X, CheckCircle, FileText, Globe, ExternalLink } from 'lucide-react'
+import { Send, User, Bot, Phone, X, CheckCircle, FileText, Globe, ExternalLink, Camera, Image as ImageIcon } from 'lucide-react'
 
 const SESSION_KEY = 'chat_session_id'
 
@@ -29,6 +29,11 @@ function MessageBubble({ msg }) {
           ? 'bg-blue-600 text-white rounded-tr-sm'
           : 'bg-white border border-gray-200 text-gray-800 rounded-tl-sm shadow-sm'
       }`}>
+        {msg.image && (
+          <div className="mb-2 rounded-lg overflow-hidden border border-gray-200 max-w-[250px]">
+            <img src={msg.image} alt="Foto adjunta" className="w-full h-auto" />
+          </div>
+        )}
         <div className="prose-chat text-sm leading-relaxed">
           <ReactMarkdown
             components={{
@@ -183,12 +188,15 @@ export default function ChatPage() {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      content: '¡Hola! 👋 Soy el asistente virtual. Estoy aquí para ayudarte. ¿En qué puedo ayudarte hoy?\n\nHello! I\'m the virtual assistant. I\'m here to help. How can I assist you today?'
+      content: '¡Hola! 🤖 Soy el asistente virtual de Whalespray. Estoy aquí para ayudarte.\n\nPuedes hacerme preguntas sobre productos o incluso **subir una foto de una superficie** y te recomendaré el producto adecuado.'
     }
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [showContact, setShowContact] = useState(false)
+  const [selectedImage, setSelectedImage] = useState(null) // base64
+  const [selectedImageName, setSelectedImageName] = useState('')
+  const fileInputRef = useRef(null)
   const sessionId = getSession()
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
@@ -197,16 +205,39 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
 
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // Max 10MB
+    if (file.size > 10 * 1024 * 1024) {
+      alert('La imagen es demasiado grande. Máximo 10MB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      setSelectedImage(reader.result)
+      setSelectedImageName(file.name)
+    }
+    reader.readAsDataURL(file)
+  }
+
   const sendMessage = async (text) => {
-    if (!text.trim() || loading) return
-    const userMsg = { role: 'user', content: text }
+    if ((!text.trim() && !selectedImage) || loading) return
+    const content = text.trim() || (selectedImage ? '[Imagen adjunta]' : '')
+    const userMsg = { role: 'user', content, image: selectedImage || undefined }
     const isFirstMessage = messages.filter(m => m.role === 'user').length === 0
     setMessages(prev => [...prev, userMsg])
     setInput('')
+    setSelectedImage(null)
+    setSelectedImageName('')
     setLoading(true)
 
     try {
-      const res = await axios.post('/api/chat', { session_id: sessionId, message: text })
+      const res = await axios.post('/api/chat', {
+        session_id: sessionId,
+        message: content,
+        image: userMsg.image || null
+      })
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: res.data.response,
@@ -288,28 +319,63 @@ export default function ChatPage() {
       </div>
 
       {/* Input area */}
-      <div className="flex gap-2 items-end bg-white border border-gray-200 rounded-2xl shadow-sm px-3 py-2">
-        <textarea
-          ref={inputRef}
-          rows={1}
-          value={input}
-          onChange={e => {
-            setInput(e.target.value)
-            e.target.style.height = 'auto'
-            e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px'
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder="Escribe tu mensaje… / Type your message…"
-          className="flex-1 resize-none text-sm focus:outline-none bg-transparent py-1"
-          style={{ minHeight: '24px', maxHeight: '128px', overflowY: 'auto' }}
-        />
-        <button
-          onClick={() => sendMessage(input)}
-          disabled={!input.trim() || loading}
-          className="w-8 h-8 bg-blue-600 text-white rounded-xl flex items-center justify-center hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
-        >
-          <Send size={14} />
-        </button>
+      <div className="flex flex-col gap-1">
+        {selectedImage && (
+          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+            <div className="w-10 h-10 rounded-lg overflow-hidden bg-white border border-gray-200 flex-shrink-0">
+              <img src={selectedImage} alt="Preview" className="w-full h-full object-cover" />
+            </div>
+            <span className="text-xs text-gray-500 flex-1 truncate">{selectedImageName || 'Imagen adjunta'}</span>
+            <button
+              onClick={() => { setSelectedImage(null); setSelectedImageName('') }}
+              className="text-gray-400 hover:text-red-500 transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+        <div className="flex gap-2 items-end bg-white border border-gray-200 rounded-2xl shadow-sm px-3 py-2">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
+            className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all flex-shrink-0 ${
+              selectedImage
+                ? 'bg-blue-100 text-blue-600'
+                : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+            }`}
+            title="Subir imagen"
+          >
+            <Camera size={14} />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleImageSelect}
+            className="hidden"
+          />
+          <textarea
+            ref={inputRef}
+            rows={1}
+            value={input}
+            onChange={e => {
+              setInput(e.target.value)
+              e.target.style.height = 'auto'
+              e.target.style.height = Math.min(e.target.scrollHeight, 128) + 'px'
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder={selectedImage ? 'Describe la superficie (opcional)…' : 'Escribe tu mensaje…'}
+            className="flex-1 resize-none text-sm focus:outline-none bg-transparent py-1"
+            style={{ minHeight: '24px', maxHeight: '128px', overflowY: 'auto' }}
+          />
+          <button
+            onClick={() => sendMessage(input)}
+            disabled={(!input.trim() && !selectedImage) || loading}
+            className="w-8 h-8 bg-blue-600 text-white rounded-xl flex items-center justify-center hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+          >
+            <Send size={14} />
+          </button>
+        </div>
       </div>
       <p className="text-center text-xs text-gray-400 mt-2">
         Las respuestas se basan únicamente en información verificada

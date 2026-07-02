@@ -181,6 +181,7 @@ def _resume_pending_sources():
 class ChatMessage(BaseModel):
     session_id: str
     message: str
+    image: Optional[str] = None  # base64-encoded image (data:image/...)
 
 class ContactData(BaseModel):
     session_id: str
@@ -336,6 +337,51 @@ def _check_limits(request: Request, session_id: str) -> tuple[bool, str]:
     return True, ""
 
 
+def vision_analyze(image_b64: str, user_text: str) -> str:
+    """
+    Analyze an image using Groq's vision model.
+    Returns a text description of the surface/material.
+    """
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    if not groq_key or not GroqClient:
+        return "[Vision no disponible: se necesita Groq API Key]"
+
+    # Extract the raw base64 data (strip data:image/...;base64, prefix)
+    if "," in image_b64:
+        raw_b64 = image_b64.split(",", 1)[1]
+    else:
+        raw_b64 = image_b64
+
+    try:
+        client = GroqClient(api_key=groq_key)
+        response = client.chat.completions.create(
+            model="llama-3.2-90b-vision-preview",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Analiza esta imagen en detalle. Describe el tipo de superficie o material que ves "
+                                f"(ej: acero, hierro, aluminio, plástico, madera, hormigón, cerámica, etc.), "
+                                f"su estado (oxidado, limpio, pintado, rugoso, liso, etc.) y cualquier detalle relevante "
+                                f"para recomendar un producto químico industrial. Responde en español, máximo 3 frases. "
+                                f"Contexto del usuario: {user_text}"
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{raw_b64}"}
+                    }
+                ]
+            }],
+            max_tokens=300,
+            temperature=0.2,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"Vision analysis error: {e}")
+        return f"[Error al analizar la imagen: {e}]"
+
+
 # ─── Chat ─────────────────────────────────────────────────────────────────────
 
 @app.post("/api/chat")
@@ -352,8 +398,20 @@ async def chat(data: ChatMessage, request: Request, db: Session = Depends(get_db
         return {"response": "Esta conversación ha alcanzado el límite de mensajes. Inicia una nueva.", "sources": [], "product_cards": []}
 
     # Save user message
-    db.add(Conversation(session_id=data.session_id, role="user", content=data.message))
+    content_for_db = data.message
+    if data.image:
+        content_for_db += f" [Imagen adjunta: {len(data.image)} caracteres]"
+    db.add(Conversation(session_id=data.session_id, role="user", content=content_for_db))
     db.commit()
+
+    # ── Vision analysis (if image present) ──
+    vision_result = ""
+    search_query = data.message
+    if data.image:
+        vision_result = vision_analyze(data.image, data.message)
+        logger.info(f"Vision analysis: {vision_result[:100]}...")
+        # Use vision result to enhance RAG search
+        search_query = f"{data.message} - Material: {vision_result}"
 
     # Get conversation history (last 10 turns)
     history = db.query(Conversation)\
@@ -362,7 +420,7 @@ async def chat(data: ChatMessage, request: Request, db: Session = Depends(get_db
         .all()
 
     # Search relevant context
-    context_docs = rag_engine.search(data.message, n_results=8)
+    context_docs = rag_engine.search(search_query, n_results=8)
 
     # Build context block — include URLs so agent can cite them
     if context_docs:
@@ -384,7 +442,10 @@ async def chat(data: ChatMessage, request: Request, db: Session = Depends(get_db
     memory = read_memory()
     memory_block = f"\n\n=== MEMORIA / CORRECCIONES APRENDIDAS ===\n{memory}\n=== FIN ===" if memory else ""
 
-    system_prompt = instructions + memory_block + context_block
+    # Include vision result in the system prompt
+    vision_block = f"\n\n=== ANÁLISIS DE LA IMAGEN ===\n{vision_result}\n=== FIN ===" if vision_result else ""
+
+    system_prompt = instructions + memory_block + vision_block + context_block
 
     # Build message history
     messages = []
